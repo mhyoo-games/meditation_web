@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>단풍마을 산책 — 마음 쉬어가기</title>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="view"></canvas>
+
+  <!-- 시작 화면 -->
+  <section id="intro" class="panel">
+    <div class="card">
+      <p class="eyebrow">마음 쉬어가는 산책</p>
+      <h1>단풍마을</h1>
+      <p class="lead">단풍이 물든 작은 마을을 천천히 걸어 보세요.<br>절에서는 목탁과 반야심경이, 교회에서는 찬송가와 캐럴이, 성당에서는 성가대의 노래가 흘러나와요.</p>
+      <h2>함께 걸을 동물을 골라 주세요</h2>
+      <div id="pick" class="pick" role="radiogroup" aria-label="동물 고르기"></div>
+      <button id="start" class="primary" disabled>불러오는 중…</button>
+      <p class="hint">소리가 나요. 이어폰을 쓰면 더 편안해요.</p>
+    </div>
+  </section>
+
+  <!-- 화면 위 정보 -->
+  <header id="hud" hidden>
+    <div id="place"><span id="placeName">단풍마을</span><span id="placeSub">천천히 걸어 보세요</span></div>
+    <div class="tools">
+      <button id="btnSit" title="앉아서 명상하기">명상하기</button>
+      <button id="btnGo" title="가고 싶은 곳으로 걷기">가 보기 ▾</button>
+      <label class="vol" title="소리 크기"><span aria-hidden="true">소리</span><input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="소리 크기"></label>
+    </div>
+    <div id="goMenu" class="menu" hidden>
+      <button data-go="temple">단풍사 (절)</button>
+      <button data-go="church">은행나무 교회</button>
+      <button data-go="cathedral">별빛 성당</button>
+      <button data-go="plaza">단풍 광장</button>
+      <button data-go="pond">연못</button>
+      <button data-go="home">우리 집</button>
+    </div>
+  </header>
+
+  <div id="caption" hidden>
+    <div id="capTitle"></div>
+    <div id="capText"></div>
+    <div id="capTools">
+      <label id="ttsWrap" hidden><input id="tts" type="checkbox"> 기기 음성으로 함께 읽기</label>
+      <button id="btnNext" hidden>다음 곡</button>
+      <button id="btnBell">종 치기</button>
+    </div>
+  </div>
+
+  <div id="breath" hidden><div class="ring"></div><p id="breathText">숨을 들이쉬어요</p><p class="small">명상하기를 다시 누르면 일어나요</p></div>
+
+  <p id="help" hidden>WASD·방향키로 걷기 · 땅을 누르면 그곳으로 걸어가요 · 드래그로 둘러보기 · 휠/두 손가락으로 확대</p>
+  <div id="loading" hidden><div class="bar"><i id="loadBar"></i></div><p id="loadText">마을을 불러오는 중…</p></div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

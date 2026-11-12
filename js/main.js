@@ -1,6 +1,10 @@
 // 단풍마을 산책 — three.js
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import LAYOUT from '../assets/village/village_layout.js';
 import { createAudio, HEART_SUTRA } from './audio.js';
 import { createNav } from './nav.js';
@@ -33,23 +37,79 @@ const parse = buf => new Promise((res, rej) => loader.parse(buf, '', res, rej));
 
 // ---------------------------------------------------------------- 장면
 const canvas = document.getElementById('view');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+const LOWEND = Math.min(screen.width, screen.height) < 500;
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOWEND ? 1.5 : 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xF6DCC0);
-scene.fog = new THREE.Fog(0xF4D8BC, 40, 120);
-const cam = new THREE.PerspectiveCamera(42, 1, 0.1, 400);
-scene.add(new THREE.HemisphereLight(0xFFF1DD, 0x8E7050, 1.35));
-const sun = new THREE.DirectionalLight(0xFFDDB0, 2.1); sun.position.set(-30, 42, 24); scene.add(sun);
+scene.fog = new THREE.Fog(0xF4D8BC, 40, 150);
+const cam = new THREE.PerspectiveCamera(42, 1, 0.1, 500);
+const hemi = new THREE.HemisphereLight(0xFFF1DD, 0x8E7050, 1.35); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xFFDDB0, 2.1); sun.position.set(-30, 42, 24); scene.add(sun); scene.add(sun.target);
+sun.castShadow = true; sun.shadow.mapSize.set(LOWEND ? 1024 : 2048, LOWEND ? 1024 : 2048);
+Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 140 }); sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.03;
 const fill = new THREE.DirectionalLight(0xB8C8FF, 0.45); fill.position.set(25, 18, -30); scene.add(fill);
-new THREE.TextureLoader().load(asset('assets/sky.jpg'), t => { t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; scene.background = t; });
+// 가까운 등불 몇 개만 진짜 빛으로 (나머지는 빛나는 모양 + 번짐)
+const LAMPS = Array.from({ length: LOWEND ? 4 : 8 }, () => { const l = new THREE.PointLight(0xFFA650, 0, 10, 1.4); scene.add(l); return l; });
+const skyTex = {}; const texL = new THREE.TextureLoader();
+function skyLoad(k, p) { texL.load(asset(p), t => { t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; skyTex[k] = t; if (TIME[TIME.cur].sky === k && started) applyTime(TIME.cur); }); }
+{ // 노을 하늘 (그라데이션 + 별 몇 개)
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 512; const x = c.getContext('2d');
+  const gr = x.createLinearGradient(0, 0, 0, 512);
+  [[0, '#2B2C58'], [0.28, '#5B4272'], [0.42, '#B4617A'], [0.49, '#F09A6A'], [0.53, '#F7C58A'], [0.6, '#C07A6A'], [1, '#4A3448']].forEach(([o, col]) => gr.addColorStop(o, col));
+  x.fillStyle = gr; x.fillRect(0, 0, 1024, 512);
+  x.fillStyle = 'rgba(255,240,220,0.8)'; for (let i = 0; i < 90; i++) { const yy = Math.random() * 130; x.globalAlpha = 0.3 + Math.random() * 0.6 * (1 - yy / 130); x.fillRect(Math.random() * 1024, yy, 1.4, 1.4); }
+  x.globalAlpha = 1; const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; skyTex.dusk = t;
+}
+skyLoad('day', 'assets/sky.jpg'); skyLoad('night', 'assets/sky_night.jpg');
 const grad = new THREE.DataTexture(new Uint8Array([110, 110, 110, 255, 190, 190, 190, 255, 255, 255, 255, 255]), 3, 1, THREE.RGBAFormat);
 grad.minFilter = grad.magFilter = THREE.NearestFilter; grad.needsUpdate = true;
 const outlineMat = new THREE.MeshBasicMaterial({ color: 0x2A1A14, side: THREE.BackSide });
 outlineMat.onBeforeCompile = s => { s.vertexShader = s.vertexShader.replace('#include <skinning_vertex>', '#include <skinning_vertex>\ntransformed += normalize(objectNormal) * 0.018;'); };
-function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
+// 빛 번짐 (UnrealBloom)
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, cam));
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.55, 0.85); composer.addPass(bloom);
+composer.addPass(new OutputPass());
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); composer.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
+
+// 낮 · 노을 · 밤
+const glowMats = [];   // 등불·연등·창 (밤에 더 밝게)
+const TIME = {
+  cur: 'dusk',
+  day: { sky: 'day', fog: 0xF4D8BC, fogN: 45, fogF: 160, hemi: [0xFFF1DD, 0x8E7050, 1.3], sun: [0xFFE2B8, 2.2], pos: [-30, 42, 24], fill: 0.45, lamp: 0, glow: 1.0, bloom: 0.25, exp: 1.0 },
+  dusk: { sky: 'dusk', tint: 0xFFB27A, fog: 0xD99A78, fogN: 30, fogF: 130, hemi: [0xFFD2B0, 0x6A4A50, 1.15], sun: [0xFFA060, 1.9], pos: [-44, 18, 10], fill: 0.45, lamp: 1.8, glow: 1.25, bloom: 0.5, exp: 1.05 },
+  night: { sky: 'night', fog: 0x1C2440, fogN: 22, fogF: 110, hemi: [0x5468A8, 0x1A1424, 0.55], sun: [0x9CB4FF, 0.55], pos: [30, 40, -20], fill: 0.12, lamp: 3.2, glow: 1.25, bloom: 0.8, exp: 1.05 },
+};
+function applyTime(k) {
+  TIME.cur = k; const T = TIME[k];
+  const sky = skyTex[T.sky]; scene.background = sky || new THREE.Color(T.fog);
+  scene.fog.color.set(T.fog); scene.fog.near = T.fogN; scene.fog.far = T.fogF;
+  hemi.color.set(T.hemi[0]); hemi.groundColor.set(T.hemi[1]); hemi.intensity = T.hemi[2];
+  sun.color.set(T.sun[0]); sun.intensity = T.sun[1]; sun.userData.off = T.pos; fill.intensity = T.fill;
+  glowMats.forEach(m => m.color.setScalar(T.glow)); bloom.strength = T.bloom; renderer.toneMappingExposure = T.exp;
+  TIME.lamp = T.lamp; if (mountains) mountains.material.color.set(k === 'night' ? 0x2A3350 : k === 'dusk' ? 0x8A5A5E : 0x9AA8A0);
+  const b = document.getElementById('btnTime'); if (b) b.textContent = { day: '☀️ 낮', dusk: '🌇 노을', night: '🌙 밤' }[k];
+}
+sun.userData.off = TIME.dusk.pos;
+
+// 먼 산 (안개 속으로 겹겹이)
+let mountains = null;
+{
+  const g = new THREE.BufferGeometry(), P = [], I = [], seg = 160, rows = 3;
+  for (let r = 0; r <= rows; r++) for (let i = 0; i <= seg; i++) {
+    const a = i / seg * Math.PI * 2, R = 95 + r * 6;
+    const h = r === rows ? -6 : r === 0 ? -4 : (14 + 10 * Math.sin(a * 3 + 1) + 7 * Math.sin(a * 7.3) + 4 * Math.sin(a * 17.1 + 2)) * (r === 1 ? 1 : 0.85) + (r === 2 ? 8 : 0);
+    P.push(Math.cos(a) * R, h, Math.sin(a) * R);
+  }
+  for (let r = 0; r < rows; r++) for (let i = 0; i < seg; i++) { const a = r * (seg + 1) + i, b = a + seg + 1; I.push(a, b, a + 1, a + 1, b, b + 1); }
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setIndex(I); g.computeVertexNormals();
+  mountains = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: 0x8A5A5E, side: THREE.DoubleSide, flatShading: true })); scene.add(mountains);
+}
 
 // ---------------------------------------------------------------- 땅·막힘·길찾기
 const HM = LAYOUT.heightmap;
@@ -69,9 +129,19 @@ function groundH(x, z) {
   return y;
 }
 const RAD = 0.3;
+// 막힌 곳(건물 벽·나무·바위·등불·소품)을 4m 칸에 나눠 두고 가까운 것만 검사
+const BK = 4, BN = Math.ceil(LAYOUT.bound * 2 / BK) + 2, BUCKET = Array.from({ length: BN * BN }, () => []);
+const bIdx = (x, z) => { const i = Math.floor((x + LAYOUT.bound) / BK) + 1, j = Math.floor((z + LAYOUT.bound) / BK) + 1; return i < 0 || j < 0 || i >= BN || j >= BN ? -1 : j * BN + i; };
+for (const b of LAYOUT.blockers) {
+  const e = Math.hypot(b.h[0], b.h[1]) + 0.8;
+  for (let x = b.c[0] - e; x <= b.c[0] + e + BK; x += BK) for (let z = b.c[1] - e; z <= b.c[1] + e + BK; z += BK) {
+    const k = bIdx(Math.min(x, b.c[0] + e), Math.min(z, b.c[1] + e)); if (k >= 0 && !BUCKET[k].includes(b)) BUCKET[k].push(b);
+  }
+}
 function blockedR(x, z, rad) {
   if (Math.hypot(x, z) > LAYOUT.bound) return true;
-  for (const b of LAYOUT.blockers) { const [lx, lz] = local(b, x, z); if (Math.abs(lx) < b.h[0] + rad && Math.abs(lz) < b.h[1] + rad) return true; }
+  const k = bIdx(x, z); if (k < 0) return true;
+  for (const b of BUCKET[k]) { const [lx, lz] = local(b, x, z); if (Math.abs(lx) < b.h[0] + rad && Math.abs(lz) < b.h[1] + rad) return true; }
   return false;
 }
 const blocked = (x, z) => blockedR(x, z, RAD);
@@ -273,23 +343,125 @@ ANIMALS.forEach(a => {
   pick.appendChild(b);
 });
 
+// ---------------------------------------------------------------- 땅 (높이맵 + 바닥 무늬 지도: 흙길·돌바닥·낙엽)
+const windU = { value: 0 };
+function texRepeat(p) { const t = texL.load(asset(p)); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
+function makeTerrain() {
+  const n = HM.n, S = HM.size, g = new THREE.PlaneGeometry(S, S, n - 1, n - 1); g.rotateX(-Math.PI / 2);
+  const pos = g.attributes.position;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) pos.setY(j * n + i, HM.h[j * n + i]);
+  g.computeVertexNormals();
+  const splat = texL.load(asset('assets/tex/splat.png')); splat.colorSpace = THREE.NoColorSpace; splat.flipY = false;
+  const U = { tDirt: { value: texRepeat('assets/tex/dirt.jpg') }, tStone: { value: texRepeat('assets/tex/stone.jpg') }, tSplat: { value: splat }, uSize: { value: S } };
+  const m = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = 'varying vec3 vW;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = `uniform sampler2D tDirt, tStone, tSplat; uniform float uSize; varying vec3 vW;
+vec3 tri(sampler2D t, vec2 p) { vec3 a = texture2D(t, p * 0.42).rgb, b = texture2D(t, mat2(0.8, 0.6, -0.6, 0.8) * p * 0.11 + 0.37).rgb; return mix(a, b, 0.45); }
+float hsh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hsh(i), hsh(i + vec2(1, 0)), f.x), mix(hsh(i + vec2(0, 1)), hsh(i + vec2(1, 1)), f.x), f.y); }
+float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int k = 0; k < 4; k++) { s += a * vn(p); p = mat2(1.6, 1.2, -1.2, 1.6) * p; a *= 0.5; } return s; }
+` + sh.fragmentShader.replace('#include <map_fragment>', `
+  vec2 p = vW.xz; vec4 sp = texture2D(tSplat, p / uSize + 0.5);
+  float big = fbm(p * 0.08), mid = fbm(p * 0.6 + 7.0), fine = vn(p * 9.0);
+  vec3 gr = mix(vec3(0.22, 0.30, 0.10), vec3(0.42, 0.42, 0.15), big) * (0.82 + 0.25 * mid) * (0.9 + 0.18 * fine);
+  float lf = smoothstep(0.45, 0.7, fbm(p * 1.7 + 3.0));
+  vec3 leafc = mix(vec3(0.62, 0.20, 0.07), vec3(0.85, 0.48, 0.10), vn(p * 3.1)) * (0.85 + 0.25 * fine);
+  vec3 leaf = mix(gr * vec3(1.15, 0.85, 0.6), leafc, lf);
+  gr = mix(gr, leafc, lf * 0.25);
+  vec3 c = mix(gr, leaf, sp.b);
+  c = mix(c, tri(tDirt, p * 1.2) * vec3(1.05, 0.95, 0.85), sp.r);
+  c = mix(c, tri(tStone, p * 1.6) * vec3(1.05, 1.0, 0.95), sp.g);
+  diffuseColor.rgb *= c;`);
+  };
+  const mesh = new THREE.Mesh(g, m); mesh.name = 'terrain'; mesh.receiveShadow = true; scene.add(mesh); return mesh;
+}
+
+// ---------------------------------------------------------------- 소품 (Quaternius CC0: 나무·바위·풀·집·우물…)
+const SWAY = /Tree|Willow|Bush|Grass|Plant|Flowers/;
+// 카메라와 캐릭터 사이를 가리는 나무·집은 점무늬로 비쳐 보이게 (가까울수록 많이)
+const seeU = { uCam: { value: new THREE.Vector3(0, 99, 0) }, uTgt: { value: new THREE.Vector3() }, uSeeR: { value: 1.2 } };
+const SEE_VS = ['varying vec3 vSee;', '#include <worldpos_vertex>\n#ifdef USE_INSTANCING\nvSee = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#else\nvSee = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#endif'];
+function addSee(m) {   // 건물 벽·탑도 카메라를 가리면 점무늬로 비쳐 보이게
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, seeU);
+    sh.vertexShader = SEE_VS[0] + '\n' + sh.vertexShader.replace('#include <worldpos_vertex>', SEE_VS[1]);
+    sh.fragmentShader = SEE_FS + sh.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (seeMask() < 0.5) discard;');
+  };
+  return m;
+}
+const SEE_FS = `uniform vec3 uCam, uTgt; uniform float uSeeR; varying vec3 vSee;
+float seeMask() {
+  vec3 ab = uTgt - uCam; float L = length(ab); if (L < 0.01) return 1.0; vec3 d = ab / L;
+  float t = dot(vSee - uCam, d); if (t < 0.0 || t > L - 0.6 || vSee.y < uTgt.y - 0.45) return 1.0;
+  float r = length(vSee - uCam - d * t); float rr = uSeeR * (0.6 + 0.4 * t / L); float k = smoothstep(rr * 0.7, rr * 1.3, r);
+  float b = fract(dot(floor(gl_FragCoord.xy), vec2(0.5, 0.25)) + fract(floor(gl_FragCoord.y * 0.5) * 0.5));
+  return k + step(0.62 + 0.25 * step(2.0, uSeeR), b);
+}
+`;
+function propMaterial(name) {
+  const m = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const sway = SWAY.test(name), amp = /Grass|Plant|Flowers/.test(name) ? 0.08 : /Bush/.test(name) ? 0.03 : 0.045, see = !/Grass|Plant|Flowers|Lilypad|Rock|Barrel|Crate|Hay/.test(name);
+  {
+    m.onBeforeCompile = sh => {
+      sh.uniforms.uWind = windU; Object.assign(sh.uniforms, seeU);
+      if (see) {
+        sh.vertexShader = SEE_VS[0] + '\n' + sh.vertexShader.replace('#include <worldpos_vertex>', SEE_VS[1]);
+        sh.fragmentShader = SEE_FS + sh.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (seeMask() < 0.5) discard;');
+      }
+      if (!sway) return;
+      sh.vertexShader = 'uniform float uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+  vec3 ip = vec3(instanceMatrix[3][0], 0.0, instanceMatrix[3][2]);
+  float hk = max(0.0, transformed.y) ; float ph = uWind * 1.3 + ip.x * 0.37 + ip.z * 0.29;
+  transformed.x += sin(ph) * hk * ${amp.toFixed(3)} + sin(ph * 2.7 + transformed.y) * hk * ${(amp * 0.3).toFixed(3)};
+  transformed.z += cos(ph * 0.8) * hk * ${(amp * 0.6).toFixed(3)};`);
+    };
+  }
+  return m;
+}
+function placeProps(gltf) {
+  const src = {}; gltf.scene.traverse(o => { if (o.isMesh) src[o.name || o.parent.name] = o; });
+  gltf.scene.children.forEach(n => { const mm = n.isMesh ? n : n.children.find(c => c.isMesh); if (mm) src[n.name] = mm; });
+  const groups = {}; const VAR = ['r', 'r', 'o', 'o', 'o', 'g', 'g'];
+  LAYOUT.props.forEach(([m, x, y, z, ry, s], i) => {
+    let k = m; const h = Math.abs(Math.sin(i * 12.9898 + x * 78.233) * 43758.5453) % 1;
+    if (src[m + '~r']) k = m + '~' + VAR[Math.floor(h * VAR.length)];
+    (groups[k] = groups[k] || []).push([x, y, z, ry, s]);
+  });
+  const M = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  const root = new THREE.Group(); root.name = 'props';
+  for (const [k, list] of Object.entries(groups)) {
+    const s = src[k]; if (!s) { console.warn('prop?', k); continue; }
+    const geo = s.geometry; if (!geo.attributes.normal) geo.computeVertexNormals();
+    const im = new THREE.InstancedMesh(geo, propMaterial(k), list.length);
+    list.forEach(([x, y, z, ry, ss], i) => { q.setFromAxisAngle(up, ry); M.compose(v.set(x, y, z), q, sc.set(ss, ss, ss)); im.setMatrixAt(i, M); });
+    im.castShadow = !/Grass|Plant|Flowers|Lilypad/.test(k); im.receiveShadow = true; im.computeBoundingSphere(); im.name = k;
+    root.add(im);
+  }
+  scene.add(root); return root;
+}
+
 // ---------------------------------------------------------------- 불러오기
-const models = {}; let villageRoot = null, terrainMesh = null; const roofs = {}; let ready = null;
+const models = {}; let villageRoot = null, terrainMesh = null, propsRoot = null; const roofs = {}; let ready = null;
 async function loadAll(progress) {
-  const jobs = [['village', 'assets/village/village.glb'], ['anims', 'assets/animations/kaykit_animations.glb'], ...ANIMALS.map(a => [a.k, `assets/characters/${a.k}.glb`])];
+  const jobs = [['village', 'assets/village/village.glb'], ['props', 'assets/props.glb'], ['anims', 'assets/animations/kaykit_animations.glb'], ...ANIMALS.map(a => [a.k, `assets/characters/${a.k}.glb`])];
   let done = 0;
   await Promise.all(jobs.map(async ([k, p]) => { models[k] = await parse(await bin(p)); done++; progress(done / jobs.length); }));
   ANIMS = models.anims.animations;
   villageRoot = models.village.scene;
   villageRoot.traverse(o => {
     if (!o.isMesh) return;
-    if (o.material.name === 'Glow') o.material = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false });
-    else o.material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: grad });
+    if (o.name === 'water' || (o.parent && o.parent.name === 'water')) { o.material = new THREE.MeshPhongMaterial({ vertexColors: true, transparent: true, opacity: 0.88, shininess: 120, specular: 0x8899AA }); o.receiveShadow = true; return; }
+    if (o.material.name === 'Glow') { const m = addSee(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, fog: false })); glowMats.push(m); o.material = m; }
+    else { o.material = addSee(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: grad })); o.castShadow = true; o.receiveShadow = true; }
   });
   scene.add(villageRoot);
-  terrainMesh = villageRoot.getObjectByName('terrain');
+  terrainMesh = makeTerrain();
+  propsRoot = placeProps(models.props);
   for (const r of LAYOUT.interiors) roofs[r.roof] = villageRoot.getObjectByName(r.roof);
   const t = LAYOUT.actions.temple_incense; if (t) smoke.set(t[0][0], 2.2, t[0][1] - 1.1);
+  applyTime(TIME.cur);
 }
 ready = loadAll(p => { $('start').textContent = `불러오는 중… ${Math.round(p * 100)}%`; })
   .then(() => { $('start').disabled = false; $('start').textContent = '산책 시작'; })
@@ -330,8 +502,8 @@ canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointer
 canvas.addEventListener('pointermove', e => {
   if (!pointers.has(e.pointerId)) return; const [px, py] = pointers.get(e.pointerId); const dx = e.clientX - px, dy = e.clientY - py; pointers.set(e.pointerId, [e.clientX, e.clientY]);
   if (down) down.moved += Math.abs(dx) + Math.abs(dy);
-  if (pointers.size === 2) { const [a, b] = [...pointers.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch0) camState.dist = THREE.MathUtils.clamp(camState.dist * pinch0 / d, 3.5, 22); pinch0 = d; return; }
-  if (down && down.moved > 6) { camState.yaw -= dx * 0.006; camState.pitch = THREE.MathUtils.clamp(camState.pitch + dy * 0.004, 0.12, 1.3); }
+  if (pointers.size === 2) { const [a, b] = [...pointers.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch0) camState.dist = THREE.MathUtils.clamp(camState.dist * pinch0 / d, 2.5, 24); pinch0 = d; return; }
+  if (down && down.moved > 6) { camState.yaw -= dx * 0.006; camState.pitch = THREE.MathUtils.clamp(camState.pitch + dy * 0.004, 0.05, 1.45); }
 });
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 canvas.addEventListener('pointerup', e => {
@@ -340,10 +512,11 @@ canvas.addEventListener('pointerup', e => {
   if (!click) return;
   ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, cam);
   const targets = [terrainMesh, ...['temple', 'church', 'cathedral', 'plaza'].map(n => villageRoot.getObjectByName(n))].filter(Boolean);
+  if (!terrainMesh) return;
   const hit = ray.intersectObjects(targets, true).find(h => h.face && h.face.normal.y > 0.6);
   if (hit) walkTo(hit.point.x, hit.point.z);
 });
-canvas.addEventListener('wheel', e => { camState.dist = THREE.MathUtils.clamp(camState.dist * (1 + Math.sign(e.deltaY) * 0.1), 3.5, 22); e.preventDefault(); }, { passive: false });
+canvas.addEventListener('wheel', e => { camState.dist = THREE.MathUtils.clamp(camState.dist * (1 + Math.sign(e.deltaY) * 0.1), 2.5, 24); e.preventDefault(); }, { passive: false });
 
 function walkTo(x, z, then) {
   stopActing(() => {
@@ -355,6 +528,8 @@ $('goMenu').addEventListener('click', e => {
   const b = e.target.closest('[data-go]'); if (!b || !player) return; $('goMenu').hidden = true;
   const k = b.dataset.go; const p = k === 'home' ? [LAYOUT.homes[pickKey][0], LAYOUT.homes[pickKey][2]] : POI[k].p; walkTo(p[0], p[1]);
 });
+const ORDER = ['dusk', 'night', 'day'];
+$('btnTime').onclick = () => applyTime(ORDER[(ORDER.indexOf(TIME.cur) + 1) % 3]);
 $('vol').oninput = e => audio && audio.setVolume(parseFloat(e.target.value));
 
 // 명상 (그 자리에 앉아 호흡)
@@ -433,15 +608,34 @@ function setZone(z) {
   $('placeName').textContent = names[z][0]; $('placeSub').textContent = names[z][1];
 }
 
+// ---------------------------------------------------------------- 등불 빛·서로 비켜 가기
+let BLOOM_ON = true;
+function pickLamps(c) {
+  const L = (LAYOUT.lights || []).map(p => [p, (p[0] - c.x) ** 2 + (p[2] - c.z) ** 2]).sort((a, b) => a[1] - b[1]);
+  LAMPS.forEach((l, i) => { const e = L[i]; l.visible = !!e && TIME.lamp > 0; if (e) { l.position.set(e[0][0], e[0][1], e[0][2]); l.userData.k = e[0][3]; } });
+}
+function separate(dt) {   // 동물끼리 겹치지 않게 살짝 밀어 냄 (앉아 있거나 기도 중이면 그대로)
+  const all = [player, ...npcs];
+  for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+    const a = all[i], b = all[j]; const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz);
+    if (d > 0.62 || d < 1e-4) continue;
+    const push = (0.62 - d) * 2.2, fa = a.acting || (a === player && sitting) ? 0 : 1, fb = b.acting ? 0 : 1; if (!fa && !fb) continue;
+    const ka = fa / (fa + fb), kb = fb / (fa + fb);
+    if (fa) a.step(-dx / d, -dz / d, push * ka, dt); if (fb) b.step(dx / d, dz / d, push * kb, dt);
+  }
+}
+
 // ---------------------------------------------------------------- 루프
 const clock = new THREE.Clock(); let tAll = 0;
-const tmpV = new THREE.Vector3(), dirV = new THREE.Vector3(); const camRay = new THREE.Raycaster(); let camTick = 0, camFree = 99, camCur = 7.5, indoorK = 0;
+const tmpV = new THREE.Vector3(), dirV = new THREE.Vector3(); const camRay = new THREE.Raycaster(); let camTick = 0, camFree = 99, camCur = 7.5, wasIndoor = null, inK = 0;
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05); tAll += dt;
   if (player) {
     let ix = 0, iz = 0;
     if (keys.has('KeyW') || keys.has('ArrowUp')) iz += 1; if (keys.has('KeyS') || keys.has('ArrowDown')) iz -= 1;
     if (keys.has('KeyA') || keys.has('ArrowLeft')) ix += 1; if (keys.has('KeyD') || keys.has('ArrowRight')) ix -= 1;
+    if (keys.has('KeyQ')) camState.yaw += dt * 1.6; if (keys.has('KeyR')) camState.yaw -= dt * 1.6;
+    if (keys.has('PageUp')) camState.pitch = Math.min(1.45, camState.pitch + dt); if (keys.has('PageDown')) camState.pitch = Math.max(0.05, camState.pitch - dt);
     const sp = keys.has('ShiftLeft') || keys.has('ShiftRight') ? RUN : WALK;
     if ((ix || iz) && !player.acting && !sitting) {
       player.path = null; pendingAction = null; marker.visible = false;
@@ -454,30 +648,23 @@ function frame() {
     } else if (!sitting && !player.acting && player.curName !== 'Idle' && !player.onFinish) player.play('Idle');
     player.update(dt);
     npcs.forEach(n => n.update(dt));
+    separate(dt);
     let indoor = null;
     for (const it of LAYOUT.interiors) { const r = roofs[it.roof], inn = insideRect(it, player.pos.x, player.pos.z, 0.4); if (r) r.visible = !inn; if (inn) indoor = it; }
-    if (indoor) {   // 실내: 탑에 가리지 않게 건물 옆에서 내려다보기
-      const sy = Math.atan2(Math.cos(indoor.r), -Math.sin(indoor.r));
-      let best = sy; for (const c of [sy, sy + Math.PI]) { const d = Math.atan2(Math.sin(c - camState.yaw), Math.cos(c - camState.yaw)); if (Math.abs(d) < Math.abs(Math.atan2(Math.sin(best - camState.yaw), Math.cos(best - camState.yaw)))) best = c; }
-      const d = Math.atan2(Math.sin(best - camState.yaw), Math.cos(best - camState.yaw)); if (!down) camState.yaw += d * Math.min(1, dt * 1.5);
-    }
+    if (indoor !== wasIndoor) { if (indoor && !down) { camState.pitch = Math.max(camState.pitch, 0.62); } wasIndoor = indoor; }   // 들어갈 때 한 번만 살짝 올려 줌 — 그다음은 마음대로 돌려 보기
     camState.tgt.lerp(tmpV.set(player.pos.x, player.pos.y + 0.7, player.pos.z), Math.min(1, dt * 5));
     if (sitting || player.acting) camState.yaw += dt * 0.04;
-    indoorK += ((indoor ? 1 : 0) - indoorK) * Math.min(1, dt * 2.5);
-    const pitch = camState.pitch + (Math.max(camState.pitch, 1.18) - camState.pitch) * indoorK;
-    const dist = camState.dist + (Math.max(camState.dist, 14) - camState.dist) * indoorK;
+    const pitch = camState.pitch, dist = camState.dist;
     const cp = Math.cos(pitch);
     dirV.set(Math.sin(camState.yaw) * cp, Math.sin(pitch), Math.cos(camState.yaw) * cp);
-    if (indoor) camFree = dist;
-    else if (++camTick % 4 === 0) {
-      const hits = []; villageRoot.children.forEach(c => { if (c.visible && c.name !== 'terrain' && c.name !== 'nature') hits.push(c); });
-      camRay.set(camState.tgt, dirV); camRay.far = dist;
-      const h = camRay.intersectObjects(hits, true)[0]; camFree = h ? Math.max(1.8, h.distance - 0.35) : dist;
-    }
+    inK += ((indoor ? 1 : 0) - inK) * Math.min(1, dt * 2);
+    hemi.intensity = TIME[TIME.cur].hemi[2] * (1 + inK * (TIME.cur === 'night' ? 1.4 : TIME.cur === 'dusk' ? 0.5 : 0.15));
+    seeU.uSeeR.value += ((indoor ? 3.4 : 0.8 + camCur * 0.06) - seeU.uSeeR.value) * Math.min(1, dt * 3);
+    ++camTick; camFree = dist;   // 가리는 벽·지붕·나무는 점무늬로 비쳐 보이니 카메라는 당기지 않고 마음대로 돌려 볼 수 있음
     camCur += (Math.min(dist, camFree) - camCur) * Math.min(1, dt * (camFree < camCur ? 12 : 3));
     cam.position.copy(camState.tgt).addScaledVector(dirV, camCur);
     const gy = groundH(cam.position.x, cam.position.z) + 0.5; if (cam.position.y < gy) cam.position.y = gy;
-    cam.lookAt(camState.tgt);
+    cam.lookAt(camState.tgt); seeU.uCam.value.copy(cam.position); seeU.uTgt.value.copy(camState.tgt);
     marker.material.opacity = 0.5 + 0.35 * Math.sin(tAll * 5);
     if (audio) {
       const lv = { village: 1, temple: 0, church: 0, cathedral: 0 }; let best = 'village', bv = 0.3;
@@ -492,12 +679,18 @@ function frame() {
     camTick++; if (camTick % 6 === 0) updateActionButton();
     leaves && leaves(dt, camState.tgt.x, camState.tgt.z, tAll);
     smoke.update(dt);
+    windU.value = tAll;
+    sun.position.set(camState.tgt.x + sun.userData.off[0], sun.userData.off[1], camState.tgt.z + sun.userData.off[2]); sun.target.position.copy(camState.tgt);
+    if (camTick % 20 === 0) pickLamps(camState.tgt);
+    LAMPS.forEach((l, i) => { if (l.visible) l.intensity = l.userData.k * TIME.lamp * (0.92 + 0.08 * Math.sin(tAll * 7.3 + i * 2.1)); });
     candleFlames.forEach((f, i) => { if (f) f.scale.y = 1.6 + 0.3 * Math.sin(tAll * 9 + i); });
   } else {
-    const a = tAll * 0.05; cam.position.set(Math.sin(a) * 38, 20, Math.cos(a) * 38); cam.lookAt(0, 0, -6);
+    const a = tAll * 0.05; cam.position.set(Math.sin(a) * 30, 15, Math.cos(a) * 30); cam.lookAt(0, 1, -6);
+    windU.value = tAll; if (camTick++ % 30 === 0) pickLamps(new THREE.Vector3(Math.sin(a) * 14, 0, Math.cos(a) * 14));
+    LAMPS.forEach(l => { if (l.visible) l.intensity = l.userData.k * TIME.lamp; });
   }
-  renderer.render(scene, cam);
+  if (BLOOM_ON) composer.render(); else renderer.render(scene, cam);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__dbg = { get player() { return player; }, get npcs() { return npcs; }, startWalk, walkTo, POI, SPOTS, startAction, camState, nav, setPick: k => { pickKey = k; } };
+window.__dbg = { applyTime, TIME, get bloom() { return BLOOM_ON; }, set bloom(v) { BLOOM_ON = v; }, get player() { return player; }, get npcs() { return npcs; }, startWalk, walkTo, POI, SPOTS, startAction, camState, nav, setPick: k => { pickKey = k; } };

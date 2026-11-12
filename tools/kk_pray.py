@@ -43,22 +43,71 @@ def compose(L, name, base, dur, arms=None, bend=None, n=None):
 
 
 def smooth(x): x = max(0.0, min(1.0, x)); return x * x * (3 - 2 * x)
+def smoother(x): x = max(0.0, min(1.0, x)); return x * x * x * (x * (x * 6 - 15) + 10)
 
 
-def bow_curve(t):          # 6초: 합장 → 천천히 숙여 이마를 바닥 쪽으로 → 머무름 → 일어남
-    if t < 1.0: k = 0
-    elif t < 2.4: k = smooth((t - 1.0) / 1.4)
-    elif t < 3.6: k = 1
-    elif t < 5.0: k = 1 - smooth((t - 3.6) / 1.4)
-    else: k = 0
-    return {'spine': 0.55 * k, 'chest': 0.45 * k, 'head': 0.25 * k + 0.08}
+BOW_T = 7.0
+
+
+def bow_k(t, lag=0.0):     # 0 → 1 → 0, 부드럽게 (시작·끝이 같아 반복해도 이음매가 없음)
+    t -= lag
+    if t < 1.2: return 0.0
+    if t < 3.1: return smoother((t - 1.2) / 1.9)
+    if t < 4.3: return 1.0
+    if t < 6.2: return 1 - smoother((t - 4.3) / 1.9)
+    return 0.0
+
+
+def bow_curve(t):          # 7초: 합장 → 허리부터 차례로 숙임(가슴·머리가 조금씩 늦게) → 머무름(숨) → 천천히 일어남
+    ks, kc, kh = bow_k(t), bow_k(t, 0.15), bow_k(t, 0.3)
+    br = 0.03 * math.sin(t / BOW_T * 2 * math.pi * 3) * bow_k(t)       # 엎드려 있는 동안 숨쉬기
+    return {'spine': 0.62 * ks + br, 'chest': 0.48 * kc + br * 0.5, 'head': 0.08 + 0.32 * kh - 0.12 * kh * kh}
+
+
+def slerp(a, b, w):
+    a = a / np.linalg.norm(a); b = b / np.linalg.norm(b); d = float(np.dot(a, b))
+    if d < 0: b = -b; d = -d
+    if d > 0.9995: v = a + (b - a) * w; return v / np.linalg.norm(v)
+    th = math.acos(d); return (math.sin((1 - w) * th) * a + math.sin(w * th) * b) / math.sin(th)
+
+
+def compose_bow(L, name='Bow'):
+    """앉은 자세(Sit_Floor_Idle) + 팔: 합장(Use_Item) → 숙이면서 두 손을 바닥 앞으로(PickUp 중간) → 다시 합장"""
+    nm = {i: x.get('name') for i, x in enumerate(L.j['nodes'])}; idx = {v: k for k, v in nm.items()}
+    ch, bd = kb.clip_data(L, 'Sit_Floor_Idle')
+    joined = pose(L, 'Use_Item', 0.5)
+    import json as _j; RA = _j.loads(os.environ.get('REACH', '{"upperarm.l": [1, 0, 0, 1.8], "upperarm.r": [1, 0, 0, 1.8], "lowerarm.l": [1, 0, 0, 0.4], "lowerarm.r": [1, 0, 0, 0.4]}'))   # {bone: [ax, ay, az, angle]}
+    reach = {}
+    for k, q in joined.items():
+        if k[1] != 'rotation' or nm[k[0]] not in RA: continue
+        ax, ay, az, ang = RA[nm[k[0]]]; reach[k] = kb.qmul(np.array(q), kb.qaxis([ax, ay, az], ang))
+    T = np.linspace(0, BOW_T, int(BOW_T * 30) + 1)
+    keys = set(ch) | {k for k in joined if nm[k[0]] in ARMS and k[1] == 'rotation'} | {(idx[b], 'rotation') for b in ('spine', 'chest', 'head')}
+    tracks = {}
+    for (node, path) in keys:
+        b = nm[node]; vals = []
+        for t in T:
+            if (node, path) in ch: tt, vv = ch[(node, path)]; v = kb.sample(tt, vv, t % bd if bd > 0 else 0, path)
+            else: v = np.array(kb.rest(L, node, path), float)
+            if b in ARMS and path == 'rotation' and (node, path) in joined:
+                w = bow_k(t, -0.1) ** 1.3          # 팔은 허리보다 살짝 먼저 내려가고 늦게 올라옴
+                v = slerp(np.array(joined[(node, path)]), np.array(reach.get((node, path), joined[(node, path)])), w * 0.85)
+            if path == 'rotation':
+                a = bow_curve(t).get(b, 0.0)
+                if a: v = kb.qmul(v, kb.qaxis([1, 0, 0], a)); v = v / np.linalg.norm(v)
+            vals.append(v)
+        tracks[(node, path)] = (T, np.array(vals))
+    L.j['animations'] = [a for a in L.j['animations'] if a['name'] != name]
+    kb.add_clip(L, name, tracks)
 
 
 def main(src, dst):
     L = ks.G(src)
     compose(L, 'Pray_Stand', 'Idle', 4.0, arms=('Use_Item', 0.5), bend=lambda t: {'head': 0.28, 'chest': 0.06})
     compose(L, 'Pray_Sit', 'Sit_Chair_Idle', 4.0, arms=('Use_Item', 0.5), bend=lambda t: {'head': 0.3, 'chest': 0.08})
-    compose(L, 'Bow', 'Sit_Floor_Idle', 6.0, arms=('Use_Item', 0.5), bend=bow_curve)
+    compose_bow(L)
+    keep = set(sys.argv[3].split(',')) if len(sys.argv) > 3 else None
+    if keep: L.j['animations'] = [a for a in L.j['animations'] if a['name'] in keep]
     L.compact(); L.save(dst); print('saved', dst, [a['name'] for a in L.j['animations']])
 
 

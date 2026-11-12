@@ -335,6 +335,8 @@ export function createAudio() {
     start() { ctx.resume(); if (!timer) timer = setInterval(tick, 100); },
     setVolume(v) { master.gain.setTargetAtTime(v, ctx.currentTime, 0.1); },
     nextSong(zone) { const S = players[zone]; if (!S) return; S.n = 0; S.beat = 0; S.i = (S.i + 1) % SONGS[zone].length; S.t = 0; if (choir) { choir.amp(0, ctx.currentTime, 0.1); choirLow.amp(0, ctx.currentTime, 0.1); } },
+    chime() { const t = ctx.currentTime + 0.02; [2093, 2637, 3136].forEach((f, i) => pluck(master, f, t + i * 0.12, 0.05, 2.2, 2.7)); },
+    moktakOnce() { moktak(ctx.currentTime + 0.05, 0.6); },
     ring(zone) { const t = ctx.currentTime + 0.02; if (zone === 'temple') bell(B.temple.input, 64, t, 0.4, 16, 0.35); else if (zone === 'cathedral') bell(B.cathedral.input, 98, t, 0.3, 9, 0.6); else bell(B.church.input, 196, t, 0.2, 5, 0.8); },
   };
 }

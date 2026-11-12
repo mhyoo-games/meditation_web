@@ -28,6 +28,7 @@
   <header id="hud" hidden>
     <div id="place"><span id="placeName">단풍마을</span><span id="placeSub">천천히 걸어 보세요</span></div>
     <div class="tools">
+      <button id="btnAct" class="act" hidden>절하기</button>
       <button id="btnSit" title="앉아서 명상하기">명상하기</button>
       <button id="btnGo" title="가고 싶은 곳으로 걷기">가 보기 ▾</button>
       <label class="vol" title="소리 크기"><span aria-hidden="true">소리</span><input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="소리 크기"></label>
@@ -52,9 +53,10 @@
     </div>
   </div>
 
+  <p id="actMsg" hidden></p>
   <div id="breath" hidden><div class="ring"></div><p id="breathText">숨을 들이쉬어요</p><p class="small">명상하기를 다시 누르면 일어나요</p></div>
 
-  <p id="help" hidden>WASD·방향키로 걷기 · 땅을 누르면 그곳으로 걸어가요 · 드래그로 둘러보기 · 휠/두 손가락으로 확대</p>
+  <p id="help" hidden>WASD·방향키로 걷기 · 땅을 누르면 그곳으로 걸어가요 · 드래그로 둘러보기 · 휠/두 손가락으로 확대 · 절·교회·성당 안에서 E 또는 버튼으로 절하기·기도하기</p>
   <div id="loading" hidden><div class="bar"><i id="loadBar"></i></div><p id="loadText">마을을 불러오는 중…</p></div>
 </div>
 <script type="module" src="js/main.js"></script>

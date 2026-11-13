@@ -624,6 +624,7 @@ canvas.addEventListener('wheel', e => { camState.dist = THREE.MathUtils.clamp(ca
 function walkTo(x, z, then) {
   stopActing(() => {
     if (player.goTo(x, z)) { const end = player.path[player.path.length - 1]; marker.visible = true; marker.position.set(end[0], groundH(end[0], end[1]) + 0.04, end[1]); pendingAction = then || null; }
+    else toast('그곳으로 가는 길을 찾지 못했어요', '조금 움직인 뒤 다시 눌러 보거나 🆘 끼임 탈출을 써 보세요');
   });
 }
 $('btnGo').onclick = () => { const m = $('goMenu'), h = $('hud').getBoundingClientRect(); m.style.top = ($('hud').querySelector('.tools').getBoundingClientRect().bottom - h.top + 6) + 'px'; m.hidden = !m.hidden; $('talkMenu').hidden = true; };

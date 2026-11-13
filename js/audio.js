@@ -191,7 +191,7 @@ export function createAudio() {
       amp(a, t, tau = 0.03) { out.gain.setTargetAtTime(a * level, t, tau); },
     };
   }
-  let monks = null, choir = null, choirLow = null;
+  let monks = null, choir = null, choirLow = null, cSing = null, cSingLow = null, churchSing = false;
 
   // ---------------- 반야심경 스케줄
   const sutra = []; HEART_SUTRA.forEach((line, li) => { [...line].forEach(ch => sutra.push({ ch, li })); sutra.push({ ch: '\n', li }); });
@@ -255,6 +255,16 @@ export function createAudio() {
         } else { choir.amp(0, t, 0.15); choirLow.amp(0, t, 0.15); }
         if (song.chant && S.n === 0) organ(dest, hz('D2'), t, 60 / song.bpm * 40, 0.04);
       } else if (f) organ(dest, f, t, dur * 0.95, 0.09);
+      if (zone === 'church' && !song.chant && !song.choir) {          // 성가대에 함께하면 오르간 선율을 여러 목소리로 같이 부름
+        if (churchSing && !cSing) { cSing = voice(B.church.input, 7, 262, 16, 0.075); cSingLow = voice(B.church.input, 5, 131, 12, 0.05); }
+        if (cSing) {
+          if (churchSing && f) {
+            const vw = ['a', 'o', 'e', 'a', 'o', 'i'][S.n % 6];
+            cSing.pitch(f, t, 0.05); cSingLow.pitch(f / 2, t, 0.05); cSing.vowel(vw, t, 0.08); cSingLow.vowel(vw, t, 0.08);
+            cSing.amp(1, t, 0.05); cSingLow.amp(0.7, t, 0.05); cSing.amp(0.7, t + dur * 0.85, 0.04); cSingLow.amp(0.45, t + dur * 0.85, 0.04);
+          } else { cSing.amp(0, t, 0.2); cSingLow.amp(0, t, 0.2); }
+        }
+      }
       // 화음: 박 묶음마다 (2박)
       const meter = song.meter || 4, grp = meter === 3 ? 3 : 2;
       if (!song.chant) {
@@ -336,7 +346,10 @@ export function createAudio() {
     setVolume(v) { master.gain.setTargetAtTime(v, ctx.currentTime, 0.1); },
     nextSong(zone) { const S = players[zone]; if (!S) return; S.n = 0; S.beat = 0; S.i = (S.i + 1) % SONGS[zone].length; S.t = 0; if (choir) { choir.amp(0, ctx.currentTime, 0.1); choirLow.amp(0, ctx.currentTime, 0.1); } },
     chime() { const t = ctx.currentTime + 0.02; [2093, 2637, 3136].forEach((f, i) => pluck(master, f, t + i * 0.12, 0.05, 2.2, 2.7)); },
-    moktakOnce() { moktak(ctx.currentTime + 0.05, 0.6); },
+    moktakOnce(delay = 0.05) { moktak(ctx.currentTime + delay, 0.6); },
+    setChurchChoir(on) { churchSing = on; if (!on && cSing) { cSing.amp(0, ctx.currentTime, 0.3); cSingLow.amp(0, ctx.currentTime, 0.3); } },
+    coin() { const t = ctx.currentTime + 0.02; [0, 0.09, 0.15].forEach((d, i) => { pluck(master, [3520, 4186, 3951][i], t + d, 0.05, 0.5, 5); noiseHit(master, t + d, 6000, 6, 0.04, 0.05); }); bell(master, 392, t + 0.35, 0.06, 4, 0.3); },
+    bless() { const t = ctx.currentTime + 0.02; [1047, 1319, 1568, 2093].forEach((f, i) => pluck(master, f, t + i * 0.18, 0.05, 3.2, 2.5)); pad(master, [262, 330, 392, 523], t, 3.5, 0.025, 'sine', 1400); },
     ring(zone) { const t = ctx.currentTime + 0.02; if (zone === 'temple') bell(B.temple.input, 64, t, 0.4, 16, 0.35); else if (zone === 'cathedral') bell(B.cathedral.input, 98, t, 0.3, 9, 0.6); else bell(B.church.input, 196, t, 0.2, 5, 0.8); },
   };
 }

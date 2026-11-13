@@ -218,7 +218,10 @@ def build_all():
         for (cx, cz, hx, hz) in B.blk:
             cc, hh, r = v2.rect_world(name, cx, cz, hx, hz); layout['blockers'].append(dict(c=cc, h=hh, r=r))
         for (cx, cz, hx, hz, y0, y1) in B.plat:
-            cc, hh, r = v2.rect_world(name, cx, cz, hx, hz); layout['platforms'].append(dict(c=cc, h=hh, r=r, y0=round(y0, 3), y1=round(y1, 3)))
+            cc, hh, r = v2.rect_world(name, cx, cz, hx, hz); pl = dict(c=cc, h=hh, r=r, y0=round(y0, 3), y1=round(y1, 3))
+            if name == 'temple' and y0 == 0.0 and y1 == 1.2: pl.update(st=8, sl=0.128)      # 돌계단 8칸 (발이 계단 위에 닿게)
+            if name == 'temple' and y0 == 1.2 and y1 == 2.4: pl.update(st=6, sl=0.154)      # 나무 계단 6칸
+            layout['platforms'].append(pl)
         for it in B.inside:
             cc, hh, r = v2.rect_world(name, it['c'][0], it['c'][1], it['h'][0], it['h'][1]); layout['interiors'].append(dict(c=cc, h=hh, r=r, roof=it['roof']))
         for kind, lst in B.spots.items():

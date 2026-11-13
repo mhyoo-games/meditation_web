@@ -101,11 +101,60 @@ def compose_bow(L, name='Bow'):
     kb.add_clip(L, name, tracks)
 
 
+def compose_multi(L, name, base, dur, arms=None, fn=None, fps=30):
+    """base 동작을 dur 동안 반복 + arms 팔 자세 + fn(t) -> {bone: [(axis, angle), ...]} (뼈 자기 축 기준 회전)"""
+    nm = {i: x.get('name') for i, x in enumerate(L.j['nodes'])}; idx = {v: k for k, v in nm.items()}
+    ch, bd = kb.clip_data(L, base); ap = pose(L, *arms) if arms else {}
+    T = np.linspace(0, dur, int(dur * fps) + 1)
+    bones = set()
+    for t in np.linspace(0, dur, 9): bones |= set((fn(t) if fn else {}).keys())
+    keys = set(ch) | {k for k in ap if nm[k[0]] in ARMS and k[1] == 'rotation'} | {(idx[b], 'rotation') for b in bones}
+    tracks = {}
+    for (node, path) in keys:
+        b = nm[node]; vals = []
+        for t in T:
+            if path == 'rotation' and b in ARMS and (node, path) in ap: v = np.array(ap[(node, path)], float)
+            elif (node, path) in ch: tt, vv = ch[(node, path)]; v = kb.sample(tt, vv, t % bd if bd > 0 else 0, path)
+            else: v = np.array(kb.rest(L, node, path), float)
+            if path == 'rotation' and fn:
+                for ax, a in fn(t).get(b, []):
+                    if a: v = kb.qmul(v, kb.qaxis(ax, a))
+                v = v / np.linalg.norm(v)
+            vals.append(v)
+        tracks[(node, path)] = (T, np.array(vals))
+    L.j['animations'] = [a for a in L.j['animations'] if a['name'] != name]
+    kb.add_clip(L, name, tracks)
+
+
+X, Y, Z = [1, 0, 0], [0, 1, 0], [0, 0, 1]
+TAU = 2 * math.pi
+
+
+def sing(t):       # 4초: 악보를 든 손, 몸을 좌우로 천천히 흔들며 고개를 살짝 끄덕
+    a = math.sin(TAU * t / 4.0); b = math.sin(TAU * t / 2.0)
+    return {'spine': [(Z, 0.05 * a)], 'chest': [(Z, 0.04 * a), (X, 0.03 + 0.02 * b)], 'head': [(X, 0.12 + 0.06 * b), (Z, -0.05 * a)],
+            'upperarm.l': [(X, 0.35)], 'upperarm.r': [(X, 0.35)]}
+
+
+MOK_T = 2.4        # 2.4초에 네 번 (0.15, 0.75, 1.35, 1.95초에 딱)
+MOK_HITS = [0.15, 0.75, 1.35, 1.95]
+
+
+def moktak(t):     # 앉아서 왼손은 합장 반쪽, 오른손 채로 톡톡
+    ph = (t % 0.6) / 0.6
+    up = 0.5 * (1 - math.cos(TAU * ph)) if ph > 0.25 else (1 - ph / 0.25) * 0.15   # 0.15초에 가장 아래(딱), 다시 들어 올림
+    lift = 0.55 * smooth((ph - 0.25) / 0.45) * (1 - smooth((ph - 0.75) / 0.25)) if ph > 0.25 else 0.0
+    return {'upperarm.r': [(X, 0.9 + 0.25 * lift)], 'lowerarm.r': [(X, 0.35 + 0.6 * lift)], 'head': [(X, 0.22)], 'chest': [(X, 0.08)],
+            'upperarm.l': [(X, 0.5)]}
+
+
 def main(src, dst):
     L = ks.G(src)
     compose(L, 'Pray_Stand', 'Idle', 4.0, arms=('Use_Item', 0.5), bend=lambda t: {'head': 0.28, 'chest': 0.06})
     compose(L, 'Pray_Sit', 'Sit_Chair_Idle', 4.0, arms=('Use_Item', 0.5), bend=lambda t: {'head': 0.3, 'chest': 0.08})
     compose_bow(L)
+    compose_multi(L, 'Sing', 'Idle', 4.0, arms=('Use_Item', 0.5), fn=sing)
+    compose_multi(L, 'Moktak', 'Sit_Floor_Idle', MOK_T, arms=('Use_Item', 0.5), fn=moktak)
     keep = set(sys.argv[3].split(',')) if len(sys.argv) > 3 else None
     if keep: L.j['animations'] = [a for a in L.j['animations'] if a['name'] in keep]
     L.compact(); L.save(dst); print('saved', dst, [a['name'] for a in L.j['animations']])

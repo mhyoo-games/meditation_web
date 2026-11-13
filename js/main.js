@@ -6,6 +6,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { createRecords, LEVELS, ACH, REWARDS } from './records.js';
+import { saintFor, fortuneFor } from './blessing.js';
 import LAYOUT from '../assets/village/village_layout.js';
 import { createAudio, HEART_SUTRA } from './audio.js';
 import { createNav } from './nav.js';
@@ -87,7 +89,7 @@ const TIME = {
   night: { sky: 'night', fog: 0x1C2440, fogN: 22, fogF: 110, hemi: [0x5468A8, 0x1A1424, 0.55], sun: [0x9CB4FF, 0.55], pos: [30, 40, -20], fill: 0.12, lamp: 3.2, glow: 1.25, bloom: 0.8, exp: 1.05 },
 };
 function applyTime(k) {
-  TIME.cur = k; const T = TIME[k];
+  TIME.cur = k; const T = TIME[k]; if (k === 'night' && started && typeof rec !== 'undefined') rec.add('night');
   const sky = skyTex[T.sky]; scene.background = sky || new THREE.Color(T.fog);
   scene.fog.color.set(T.fog); scene.fog.near = T.fogN; scene.fog.far = T.fogF;
   hemi.color.set(T.hemi[0]); hemi.groundColor.set(T.hemi[1]); hemi.intensity = T.hemi[2];
@@ -125,7 +127,15 @@ function groundH(x, z) {
   let y = terrainH(x, z);
   for (const p of LAYOUT.platforms) {
     const [lx, lz] = local(p, x, z);
-    if (Math.abs(lx) <= p.h[0] && Math.abs(lz) <= p.h[1]) { const t = (p.h[1] - lz) / (2 * p.h[1]); y = Math.max(y, p.y0 + (p.y1 - p.y0) * t); }
+    if (Math.abs(lx) <= p.h[0] && Math.abs(lz) <= p.h[1]) {
+      const t = (p.h[1] - lz) / (2 * p.h[1]);
+      let f = t;
+      if (p.st) {   // 계단: 디딤판 위에서는 평평하게, 턱에서만 짧게 올라감 → 발이 계단에 닿아 보임
+        const u = t / p.sl, k = Math.floor(u), fr = u - k, e = fr > 0.82 ? (fr - 0.82) / 0.18 : 0;
+        f = Math.min(p.st, k + 1 + e * e * (3 - 2 * e)) / p.st;
+      }
+      y = Math.max(y, p.y0 + (p.y1 - p.y0) * f);
+    }
   }
   return y;
 }
@@ -159,11 +169,16 @@ const POI = {
   pond: { p: [-4.0, 11.6], name: '연못' },
 };
 const ACTION_INFO = {
-  temple_bow: { label: '절하기', enter: 'Sit_Floor_Down', loop: 'Bow', exit: 'Sit_Floor_StandUp', msg: '부처님께 천천히 절을 올려요.' },
-  temple_incense: { label: '향 피우기', enter: 'Interact', loop: 'Pray_Stand', exit: null, msg: '향 연기가 피어올라요.' },
-  church_pew: { label: '앉아서 기도하기', enter: 'Sit_Chair_Down', loop: 'Pray_Sit', exit: 'Sit_Chair_StandUp', msg: '두 손을 모아 기도해요.' },
-  cathedral_pew: { label: '앉아서 기도하기', enter: 'Sit_Chair_Down', loop: 'Pray_Sit', exit: 'Sit_Chair_StandUp', msg: '두 손을 모아 기도해요.' },
-  cathedral_candle: { label: '촛불 켜기', enter: 'Interact', loop: 'Pray_Stand', exit: null, msg: '작은 초에 불을 밝혔어요.' },
+  temple_bow: { label: '🙇 절하기', enter: 'Sit_Floor_Down', loop: 'Bow', exit: 'Sit_Floor_StandUp', msg: '부처님께 천천히 절을 올려요.', rec: 'bowTime',
+    modes: { b108: { label: '📿 108배', loop: 'Bow', speed: 1.55, msg: '108배를 시작해요. 천천히, 숨과 함께.' } } },
+  temple_moktak: { label: '🪵 목탁 치기', enter: 'Sit_Floor_Down', loop: 'Moktak', exit: 'Sit_Floor_StandUp', msg: '똑, 똑, 똑… 목탁 소리에 마음을 실어요.', rec: 'pray' },
+  temple_donate: { label: '🪙 시주하기', enter: 'Interact', loop: 'Pray_Stand', exit: null, msg: '시주함에 마음을 담아 넣었어요. (게임 안의 시주예요)', rec: 'pray', count: 'donate' },
+  temple_incense: { label: '🌫️ 향 피우기', count: 'incense', rec: 'pray', enter: 'Interact', loop: 'Pray_Stand', exit: null, msg: '향 연기가 피어올라요.' },
+  church_choir: { label: '🎵 성가대 함께하기', enter: null, loop: 'Sing', exit: null, msg: '성가대와 함께 노래해요. 이웃들도 모여들어요.', rec: 'sing' },
+  cathedral_baptism: { label: '💧 세례 받기', enter: 'Interact', loop: 'Pray_Stand', exit: null, msg: '맑은 물로 축복을 받아요.', rec: 'pray' },
+  church_pew: { label: '🙏 앉아서 기도하기', enter: 'Sit_Chair_Down', loop: 'Pray_Sit', exit: 'Sit_Chair_StandUp', msg: '두 손을 모아 기도해요.', rec: 'pray' },
+  cathedral_pew: { label: '🙏 앉아서 기도하기', enter: 'Sit_Chair_Down', loop: 'Pray_Sit', exit: 'Sit_Chair_StandUp', msg: '두 손을 모아 기도해요.', rec: 'pray' },
+  cathedral_candle: { label: '🕯️ 촛불 켜기', count: 'candle', rec: 'pray', enter: 'Interact', loop: 'Pray_Stand', exit: null, msg: '작은 초에 불을 밝혔어요.' },
 };
 const SPOTS = [];
 for (const [kind, list] of Object.entries(ACT)) for (const [x, z, yaw] of list) SPOTS.push({ kind, x, z, yaw, taken: null });
@@ -203,6 +218,7 @@ class Actor {
     for (const n of ONCE) if (this.acts[n]) { this.acts[n].setLoop(THREE.LoopOnce, 1); this.acts[n].clampWhenFinished = true; }
     if (this.acts['trait-idle']) this.acts['trait-idle'].play();
     this.pos = new THREE.Vector3(); this.yaw = 0; this.cur = null; this.path = null; this.pi = 0; this.stuck = 0;
+    this.mixer.addEventListener('loop', e => { if (this.onLoop) this.onLoop(e.action); });
     this.mixer.addEventListener('finished', () => { if (this.onFinish) { const f = this.onFinish; this.onFinish = null; f(); } });
     scene.add(this.root); this.play('Idle');
   }
@@ -213,6 +229,12 @@ class Actor {
     this.cur = a; this.curName = n;
   }
   place(x, z, yaw) { this.pos.set(x, groundH(x, z), z); if (yaw !== undefined) this.yaw = yaw; this.sync(); }
+  glideTo(x, z, yaw, dur, done) {   // 자리로 순간이동하지 않고 살짝 걸어 들어가며 돌아섬
+    const d = Math.hypot(x - this.pos.x, z - this.pos.z);
+    if (d < 0.02 && (yaw === undefined || Math.abs(Math.atan2(Math.sin(yaw - this.yaw), Math.cos(yaw - this.yaw))) < 0.05)) { this.place(x, z, yaw); done && done(); return; }
+    this.glide = { x0: this.pos.x, z0: this.pos.z, y0: this.yaw, x1: x, z1: z, y1: yaw === undefined ? this.yaw : yaw, t: 0, dur: Math.max(0.35, dur || d / 1.2), done };
+    if (d > 0.08) { this.play('Walking_A', 0.25); this.cur && this.cur.setEffectiveTimeScale(0.7); }
+  }
   sync() { this.root.position.copy(this.pos); this.root.rotation.y = this.yaw; }
   turnTo(yaw, dt, k = 8) { let d = yaw - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); this.yaw += d * Math.min(1, dt * k); }
   step(dx, dz, sp, dt) {
@@ -238,21 +260,37 @@ class Actor {
     return false;
   }
   doAction(spot, onDone) {
-    const A = ACTION_INFO[spot.kind]; this.acting = spot; this.place(spot.x, spot.z, spot.yaw);
-    const loop = () => this.play(A.loop, 0.4);
-    if (A.enter && this.acts[A.enter]) { this.play(A.enter, 0.3); this.onFinish = loop; } else loop();
+    const A = ACTION_INFO[spot.kind]; this.acting = spot; this.mode = this.mode || null; this.path = null;
+    const loopName = (this.mode && A.modes && A.modes[this.mode].loop) || A.loop;
+    const loop = () => { if (this.acting !== spot) return; this.play(loopName, 0.6); const ts = this.mode && A.modes[this.mode].speed; if (ts && this.cur) this.cur.setEffectiveTimeScale(ts); };
+    this.glideTo(spot.x, spot.z, spot.yaw, null, () => {
+      if (this.acting !== spot) return;
+      this.play('Idle', 0.25);
+      if (A.enter && this.acts[A.enter]) { setTimeout(() => { if (this.acting !== spot) return; this.play(A.enter, 0.45); this.onFinish = loop; }, 180); } else loop();
+    });
     onDone && onDone(A);
   }
   endAction(after) {
     const spot = this.acting; if (!spot) { after && after(); return; }
     const A = ACTION_INFO[spot.kind]; this.acting = null; if (spot.taken === this) spot.taken = null;
-    const _after = after; after = () => { unstick(this, 1.5); _after && _after(); };
-    if (A.exit && this.acts[A.exit]) { this.play(A.exit, 0.3); this.onFinish = () => { this.play('Idle'); after && after(); }; }
+    this.mode = null; this.glide = null;
+    const _after = after; after = () => {
+      const p = blockedR(this.pos.x, this.pos.z, RAD) ? freeSpotNear(this.pos.x, this.pos.z, 1.5) : null;
+      if (p) this.glideTo(p[0], p[1], undefined, null, () => { this.play('Idle', 0.3); _after && _after(); }); else _after && _after();
+    };
+    if (A.exit && this.acts[A.exit]) { this.play(A.exit, 0.45); this.onFinish = () => { this.play('Idle', 0.4); after && after(); }; }
     else { this.onFinish = null; this.play('Idle'); after && after(); }
   }
   update(dt) {
     this.mixer.update(dt);
-    const gy = groundH(this.pos.x, this.pos.z); this.pos.y += (gy - this.pos.y) * Math.min(1, dt * 12);
+    if (this.glide) {
+      const g = this.glide; g.t += dt; const k = Math.min(1, g.t / g.dur), e = k * k * (3 - 2 * k);
+      this.pos.x = g.x0 + (g.x1 - g.x0) * e; this.pos.z = g.z0 + (g.z1 - g.z0) * e;
+      let dy = g.y1 - g.y0; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); this.yaw = g.y0 + dy * e;
+      if (k >= 1) { this.glide = null; g.done && g.done(); }
+    }
+    const gy = groundH(this.pos.x, this.pos.z), dyv = gy - this.pos.y;
+    this.pos.y += dyv * Math.min(1, dt * (dyv > 0 ? 9 : 7));   // 올라갈 때·내려갈 때 부드럽게
     this.sync();
   }
 }
@@ -263,7 +301,7 @@ class Villager extends Actor {
   choose() {
     const r = Math.random(); let tgt = null; this.plan = null;
     if (r < 0.45) {
-      const kinds = ['temple_bow', 'temple_bow', 'church_pew', 'cathedral_pew', 'temple_incense', 'cathedral_candle'];
+      const kinds = ['temple_bow', 'temple_bow', 'church_pew', 'cathedral_pew', 'temple_incense', 'cathedral_candle', 'temple_moktak', 'temple_donate'];
       const kind = kinds[Math.floor(Math.random() * kinds.length)];
       const free = SPOTS.filter(s => s.kind === kind && !s.taken);
       if (free.length) { const s = free[Math.floor(Math.random() * free.length)]; s.taken = this; this.plan = s; tgt = [s.x, s.z]; }
@@ -279,9 +317,10 @@ class Villager extends Actor {
   update(dt) {
     if (this.state === 'idle') { this.t -= dt; if (this.t <= 0) this.choose(); }
     else if (this.state === 'walk') {
-      this.play('Walking_A'); if (this.cur) this.cur.setEffectiveTimeScale(0.9);
-      if (this.follow(dt, WALK * 0.8)) {
-        if (this.plan) { this.state = 'act'; this.t = 25 + Math.random() * 35; this.doAction(this.plan); if (this.plan.kind === 'cathedral_candle') lightCandle(); if (this.plan.kind === 'temple_incense') smoke.puff(); }
+      if (this.hurry) this.play('Running_A'); else { this.play('Walking_A'); if (this.cur) this.cur.setEffectiveTimeScale(0.9); }
+      if (this.follow(dt, this.hurry ? RUN * 0.85 : WALK * 0.8)) {
+        this.hurry = false;
+        if (this.plan) { this.state = 'act'; this.t = this.plan.kind === 'temple_donate' ? 6 + Math.random() * 4 : this.plan.kind === 'church_choir' ? 9999 : 25 + Math.random() * 35; this.doAction(this.plan); if (this.plan.kind === 'cathedral_candle') lightCandle(); if (this.plan.kind === 'temple_incense') smoke.puff(); }
         else { this.state = 'idle'; this.t = 6 + Math.random() * 14; if (this.cheer) { this.play('Cheer', 0.3); this.onFinish = () => this.play('Idle'); } else this.play('Idle'); }
       }
     } else if (this.state === 'act') { this.t -= dt; if (this.t <= 0) { this.state = 'busy'; this.endAction(() => { this.state = 'idle'; this.t = 1; }); } }
@@ -489,6 +528,9 @@ async function startWalk() {
   $('intro').hidden = true; $('hud').hidden = false; $('help').hidden = false;
   setTimeout(() => { $('help').hidden = true; }, 15000);
   hookAudioText();
+  if (rec.visit()) { const r = rec.data; setTimeout(() => toast(r.days.length === 1 ? '🍁 단풍마을에 온 걸 환영해요' : `🍁 오늘도 와 주셨네요`, r.streak > 1 ? `${r.streak}일째 이어서 들렀어요` : '명상하고 기도하면 마음 점수가 쌓여요 (🏅)'), 1200); }
+  if (TIME.cur === 'night') rec.add('night');
+  updateBadge();
 }
 $('start').onclick = startWalk;
 
@@ -498,6 +540,7 @@ addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return; keys.add(e.code);
   if (/Arrow|Key[WASD]/.test(e.code) && player && (player.acting || sitting)) stopActing();
   if (e.code === 'KeyE') { const b = $('btnAct'); if (!b.hidden) b.click(); }
+  if (e.code === 'Escape') ['recPanel', 'baptPanel', 'talkMenu', 'goMenu'].forEach(id => { $(id).hidden = true; });
 });
 addEventListener('keyup', e => keys.delete(e.code));
 const pointers = new Map(); let pinch0 = 0, down = null;
@@ -526,7 +569,7 @@ function walkTo(x, z, then) {
     if (player.goTo(x, z)) { const end = player.path[player.path.length - 1]; marker.visible = true; marker.position.set(end[0], groundH(end[0], end[1]) + 0.04, end[1]); pendingAction = then || null; }
   });
 }
-$('btnGo').onclick = () => { $('goMenu').hidden = !$('goMenu').hidden; };
+$('btnGo').onclick = () => { const m = $('goMenu'), h = $('hud').getBoundingClientRect(); m.style.top = ($('hud').querySelector('.tools').getBoundingClientRect().bottom - h.top + 6) + 'px'; m.hidden = !m.hidden; $('talkMenu').hidden = true; };
 $('goMenu').addEventListener('click', e => {
   const b = e.target.closest('[data-go]'); if (!b || !player) return; $('goMenu').hidden = true;
   const k = b.dataset.go;
@@ -559,31 +602,57 @@ $('btnSit').onclick = toggleSit;
 let nearSpot = null;
 function stopActing(after) {
   if (sitting) { toggleSit(); if (after) setTimeout(after, 700); return; }
-  if (player && player.acting) { player.endAction(after); $('btnAct').classList.remove('on'); $('actMsg').hidden = true; return; }
+  if (player && player.acting) { if (player.acting.kind === 'church_choir') { audio && audio.setChurchChoir(false); releaseChoir(); } player.onLoop = null; player.endAction(after); $('btnAct').classList.remove('on'); $('actMsg').hidden = true; return; }
   if (after) after();
 }
-function startAction(spot) {
+function startAction(spot, mode = null) {
   if (spot.taken && spot.taken !== player) { const alt = SPOTS.filter(s => s.kind === spot.kind && !s.taken).sort((a, b) => Math.hypot(a.x - player.pos.x, a.z - player.pos.z) - Math.hypot(b.x - player.pos.x, b.z - player.pos.z))[0]; if (!alt) return; spot = alt; }
   const go = () => {
     if (spot.taken && spot.taken !== player) return;
-    spot.taken = player; marker.visible = false;
-    player.doAction(spot, A => { const b = $('btnAct'); b.hidden = false; b.classList.add('on'); b.textContent = '일어나기'; $('actMsg').textContent = A.msg; $('actMsg').hidden = false; });
+    spot.taken = player; marker.visible = false; player.mode = mode;
+    const A = ACTION_INFO[spot.kind], M = mode && A.modes ? A.modes[mode] : null;
+    player.doAction(spot, () => {
+      showActBar(true); const b = $('btnAct'); b.hidden = false; b.classList.add('on'); b.textContent = '일어나기'; $('btnAlt').hidden = true;
+      $('actMsg').textContent = (M && M.msg) || A.msg; $('actMsg').hidden = false;
+    });
+    if (A.count) rec.add(A.count);
+    count108 = 0; player.onLoop = null;
     if (spot.kind === 'temple_incense') { smoke.puff(); audio && audio.chime(); }
     if (spot.kind === 'cathedral_candle') { lightCandle(); audio && audio.chime(); }
-    if (spot.kind === 'temple_bow') audio && audio.moktakOnce();
+    if (spot.kind === 'temple_bow') {
+      audio && audio.moktakOnce();
+      player.onLoop = act => {
+        if (act !== player.acts.Bow) return; rec.add('bows');
+        if (mode === 'b108') {
+          count108++; $('actMsg').textContent = `📿 108배  ${count108} / 108`; if (count108 % 9 === 0) audio && audio.moktakOnce(0);
+          if (count108 >= 108) { rec.add('b108'); audio && audio.ring('temple'); toast('📿 108배를 모두 마쳤어요', '수고했어요. 마음이 한결 맑아졌기를.'); stopActing(); }
+        }
+      };
+      if (mode === 'b108') setTimeout(() => { if (player && player.mode === 'b108') $('actMsg').textContent = '📿 108배  0 / 108'; }, 900);
+    }
+    if (spot.kind === 'temple_donate') setTimeout(() => { audio && audio.coin(); sparkle(spot.x, spot.z, 1.2); }, 700);
+    if (spot.kind === 'church_choir') { audio && audio.setChurchChoir(true); summonChoir(); $('capText').textContent = '성가대가 오르간에 맞춰 함께 노래하고 있어요. 🎵'; }
+    if (spot.kind === 'cathedral_baptism') setTimeout(() => { if (player && player.acting === spot) { audio && audio.bless(); sparkle(spot.x, spot.z, 1.6, 40); openBaptism(); } }, 1600);
   };
-  if (Math.hypot(spot.x - player.pos.x, spot.z - player.pos.z) < 0.35) go();
+  if (Math.hypot(spot.x - player.pos.x, spot.z - player.pos.z) < 0.6) go();
   else walkTo(spot.x, spot.z, go);
 }
+let count108 = 0;
+function showActBar(on) { $('actBar').hidden = !on; }
 $('btnAct').onclick = () => { if (!player) return; if (player.acting) { stopActing(); return; } if (nearSpot) startAction(nearSpot); };
+$('btnAlt').onclick = () => { if (!player || player.acting || !nearSpot) return; const A = ACTION_INFO[nearSpot.kind]; if (A.modes) startAction(nearSpot, Object.keys(A.modes)[0]); };
 function nearest(kind) { return SPOTS.filter(s => s.kind === kind && !s.taken).sort((a, b) => Math.hypot(a.x - player.pos.x, a.z - player.pos.z) - Math.hypot(b.x - player.pos.x, b.z - player.pos.z))[0] || null; }
 function updateActionButton() {
   if (!player || player.acting) return;
   let best = null, bd = 2.2;
   for (const s of SPOTS) { const d = Math.hypot(s.x - player.pos.x, s.z - player.pos.z); if (d < bd && !s.taken) { bd = d; best = s; } }
   if (!best) for (const it of LAYOUT.interiors) if (insideRect(it, player.pos.x, player.pos.z)) best = nearest(it.roof === 'temple_roof' ? 'temple_bow' : it.roof === 'church_roof' ? 'church_pew' : 'cathedral_pew');
-  nearSpot = best; const b = $('btnAct');
-  if (best) { b.hidden = false; b.textContent = ACTION_INFO[best.kind].label; } else b.hidden = true;
+  nearSpot = best; const b = $('btnAct'), b2 = $('btnAlt');
+  if (best) {
+    const A = ACTION_INFO[best.kind]; b.hidden = false; b.textContent = A.label;
+    if (A.modes) { const m = Object.values(A.modes)[0]; b2.hidden = false; b2.textContent = m.label; } else b2.hidden = true;
+  } else { b.hidden = true; b2.hidden = true; }
+  showActBar(!!best && !sitting);
 }
 
 // ---------------------------------------------------------------- 자막
@@ -603,7 +672,7 @@ $('tts').onchange = e => { ttsOn = e.target.checked; if (!ttsOn && 'speechSynthe
 $('btnNext').onclick = () => audio && audio.nextSong(zoneNow);
 $('btnBell').onclick = () => audio && audio.ring(zoneNow);
 function setZone(z) {
-  if (z === zoneNow) return; zoneNow = z;
+  if (z === zoneNow) return; zoneNow = z; if (started) rec.zone(z);
   $('caption').hidden = z === 'village';
   $('ttsWrap').hidden = z !== 'temple'; $('btnNext').hidden = !(z === 'church' || z === 'cathedral');
   if (z !== 'temple' && 'speechSynthesis' in window) speechSynthesis.cancel();
@@ -652,8 +721,208 @@ function resetToIntro() {   // 처음 화면(동물 고르기)으로
   for (const r of Object.values(roofs)) if (r) r.visible = true;
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   audio && audio.setLevels({ village: 1, temple: 0, church: 0, cathedral: 0 }); setZone('village');
-  ['hud', 'caption', 'actMsg', 'help', 'goMenu', 'btnAct'].forEach(id => { $(id).hidden = true; });
+  ['hud', 'caption', 'actMsg', 'help', 'goMenu', 'btnAct', 'actBar', 'talkMenu', 'recPanel', 'baptPanel'].forEach(id => { $(id).hidden = true; });
+  audio && audio.setChurchChoir(false); bubbles.splice(0).forEach(b => b.el.remove()); rec.save();
   $('intro').hidden = false; started = false;
+}
+
+// ---------------------------------------------------------------- 마음 기록 · 업적 · 보상
+const toastQ = []; let toastBusy = false;
+function toast(title, sub = '') { toastQ.push([title, sub]); if (!toastBusy) nextToast(); }
+function nextToast() {
+  const it = toastQ.shift(); if (!it) { toastBusy = false; return; } toastBusy = true;
+  const t = $('toast'); t.innerHTML = ''; t.append(document.createTextNode(it[0])); if (it[1]) { const sm = document.createElement('small'); sm.textContent = it[1]; t.append(sm); }
+  t.hidden = false; setTimeout(() => { t.hidden = true; setTimeout(nextToast, 300); }, 3200);
+}
+const rec = createRecords(
+  a => { toast(`${a.icon} 업적: ${a.name}`, a.desc); audio && audio.chime(); },
+  (lv, L) => { toast(`${L[2]} ${L[1]} 단계가 되었어요`, (REWARDS.find(r => r[0] === lv) || [0, '마음 점수가 쌓였어요'])[1]); audio && audio.bless(); updateBadge(); }
+);
+function updateBadge() { const L = LEVELS[rec.level()]; $('lvBadge').textContent = `${L[2]} ${L[1]}`; }
+updateBadge();
+const fmtT = s => s >= 3600 ? `${Math.floor(s / 3600)}시간 ${Math.floor(s % 3600 / 60)}분` : `${Math.floor(s / 60)}분 ${Math.floor(s % 60)}초`;
+function renderRecords() {
+  const r = rec.data, p = rec.points(), lv = rec.level(), L = LEVELS[lv], N = LEVELS[lv + 1];
+  const pct = N ? Math.round((p - L[0]) / (N[0] - L[0]) * 100) : 100;
+  $('recLevel').innerHTML = `<div class="lvl"><span class="ic">${L[2]}</span><div style="flex:1"><b>${L[1]}</b> · 마음 점수 ${p}${N ? ` <small>(다음 ${N[2]} ${N[1]}까지 ${N[0] - p})</small>` : ''}<div class="bar"><i style="width:${pct}%"></i></div></div></div>`;
+  const tt = r.todayD === new Date().toDateString() ? r.todayT : r.todayT;
+  const st = [['명상', fmtT(r.t.meditate)], ['기도', fmtT(r.t.pray)], ['절한 시간', fmtT(r.t.bowTime)], ['성가대', fmtT(r.t.sing)], ['절', r.n.bows + '번'], ['108배', r.n.b108 + '번'], ['목탁', r.n.moktak + '번'], ['시주', r.n.donate + '번'], ['촛불·향', (r.n.candle + r.n.incense) + '번'], ['들른 날', r.days.length + '일'], ['연속', r.streak + '일 (최고 ' + r.best + ')'], ['오늘 명상', fmtT((tt && tt.meditate) || 0)]];
+  $('recStats').innerHTML = st.map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join('');
+  $('recAch').innerHTML = ACH.map(a => {
+    const got = r.got[a.id]; let pr = '';
+    if (!got && a.prog) { const [c, m, f] = a.prog(r); pr = `<small>${f ? f(c) : Math.floor(c)} / ${f ? f(m) : m}</small>`; }
+    return `<div class="${got ? 'got' : ''}"><span class="i">${a.icon}</span><span><b>${a.name}</b>${a.desc}${got ? `<small>${got}</small>` : pr}</span></div>`;
+  }).join('');
+  $('recRewards').innerHTML = REWARDS.map(([l, t]) => `<li class="${lv >= l ? 'got' : ''}">${LEVELS[l][2]} ${LEVELS[l][1]}: ${t}</li>`).join('');
+}
+$('btnRec').onclick = () => { renderRecords(); $('recPanel').hidden = false; };
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { $(b.dataset.close).hidden = true; });
+document.querySelectorAll('.sheet').forEach(sh => sh.addEventListener('click', e => { if (e.target === sh) sh.hidden = true; }));
+addEventListener('beforeunload', () => rec.save());
+addEventListener('visibilitychange', () => { if (document.hidden) rec.save(); });
+
+// 반짝이 (시주·세례·업적)
+const sparkles = [];
+const sparkMat = new THREE.SpriteMaterial({ color: 0xFFE7A0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+function sparkle(x, z, h = 1.2, n = 24) {
+  const y = groundH(x, z);
+  for (let i = 0; i < n; i++) {
+    const sp = new THREE.Sprite(sparkMat.clone()); sp.scale.setScalar(0.08 + Math.random() * 0.08);
+    sp.position.set(x + (Math.random() - 0.5) * 0.6, y + 0.4 + Math.random() * h, z + (Math.random() - 0.5) * 0.6); scene.add(sp);
+    sparkles.push({ sp, v: 0.3 + Math.random() * 0.5, life: 1.4 + Math.random() * 1.2, t: 0, wob: Math.random() * 6 });
+  }
+}
+function updateSparkles(dt) {
+  for (let i = sparkles.length - 1; i >= 0; i--) {
+    const s = sparkles[i]; s.t += dt; s.sp.position.y += s.v * dt; s.sp.position.x += Math.sin(s.t * 3 + s.wob) * 0.004;
+    s.sp.material.opacity = Math.max(0, 1 - s.t / s.life) * (0.6 + 0.4 * Math.sin(s.t * 12 + s.wob));
+    if (s.t > s.life) { scene.remove(s.sp); s.sp.material.dispose(); sparkles.splice(i, 1); }
+  }
+}
+// 단계 보상: 빛 방울(2) · 반딧불(3) · 꽃잎(5) · 빛 고리(7)
+const aura = (() => {
+  const n = 14, g = new THREE.Group(), dots = [];
+  for (let i = 0; i < n; i++) { const m = new THREE.Sprite(new THREE.SpriteMaterial({ color: i % 3 ? 0xFFE08A : 0xB8FFB0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })); m.scale.setScalar(0.07); g.add(m); dots.push({ m, a: Math.random() * 6.28, r: 0.5 + Math.random() * 0.6, h: 0.3 + Math.random() * 1.3, s: 0.3 + Math.random() * 0.5 }); }
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.025, 8, 32), new THREE.MeshBasicMaterial({ color: 0xFFE7A0, transparent: true, opacity: 0.85, fog: false }));
+  halo.rotation.x = Math.PI / 2; g.add(halo); scene.add(g);
+  const petals = [];
+  return {
+    update(dt, t) {
+      const lv = rec.level(); g.visible = !!player; if (!player) return;
+      g.position.copy(player.pos);
+      const calm = sitting || !!player.acting, showDots = (lv >= 2 && calm) || lv >= 3;
+      dots.forEach((d, i) => {
+        d.m.visible = showDots && (calm || i < 6);
+        d.a += dt * d.s * (calm ? 0.7 : 1.2);
+        const r = calm ? d.r : 0.9 + d.r * 0.6;
+        d.m.position.set(Math.cos(d.a) * r, d.h + Math.sin(t * 1.3 + i) * 0.15, Math.sin(d.a) * r);
+        d.m.material.opacity = (0.5 + 0.5 * Math.sin(t * 2.2 + i * 1.7)) * (calm ? 0.9 : 0.6);
+      });
+      halo.visible = lv >= 7; halo.position.y = 1.62 + Math.sin(t * 1.5) * 0.03;
+      if (lv >= 5 && player.curName && /Walk|Run/.test(player.curName) && Math.random() < dt * 9) {
+        const p = new THREE.Sprite(new THREE.SpriteMaterial({ color: Math.random() < 0.5 ? 0xFFB0C8 : 0xFFD8E4, transparent: true, depthWrite: false }));
+        p.scale.set(0.09, 0.06, 1); p.position.set(player.pos.x + (Math.random() - 0.5) * 0.4, player.pos.y + 0.1, player.pos.z + (Math.random() - 0.5) * 0.4); scene.add(p);
+        petals.push({ p, t: 0, vx: (Math.random() - 0.5) * 0.4, vz: (Math.random() - 0.5) * 0.4 });
+      }
+      for (let i = petals.length - 1; i >= 0; i--) {
+        const q = petals[i]; q.t += dt; q.p.position.x += q.vx * dt; q.p.position.z += q.vz * dt; q.p.position.y += (q.t < 0.4 ? 0.5 : -0.15) * dt;
+        q.p.material.rotation += dt * 2; q.p.material.opacity = Math.max(0, 1 - q.t / 2.2);
+        if (q.t > 2.2) { scene.remove(q.p); q.p.material.dispose(); petals.splice(i, 1); }
+      }
+    },
+  };
+})();
+
+// ---------------------------------------------------------------- 성가대
+function summonChoir() {
+  const spots = SPOTS.filter(s => s.kind === 'church_choir' && !s.taken);
+  const free = npcs.filter(v => v.state === 'idle' || (v.state === 'walk' && !v.plan) || (v.state === 'walk' && v.plan && v.plan.kind !== 'church_choir'))
+    .sort((a, b) => a.pos.distanceTo(player.pos) - b.pos.distanceTo(player.pos)).slice(0, Math.min(6, spots.length));
+  free.forEach((v, i) => {
+    const s = spots[i]; if (!s) return;
+    if (v.plan && v.plan.taken === v) v.plan.taken = null;
+    s.taken = v; v.plan = s; v.choir = true; v.hurry = true;
+    if (v.goTo(s.x, s.z)) v.state = 'walk'; else { s.taken = null; v.plan = null; v.choir = false; }
+    setTimeout(() => bubble(v, ['🎵', '🎶', '😊', '🙌'][i % 4], true), 400 + i * 300);
+  });
+}
+function releaseChoir() {
+  npcs.forEach(v => { if (v.choir) { v.choir = false; if (v.state === 'act') v.t = 1 + Math.random() * 4; else if (v.plan && v.plan.kind === 'church_choir') { v.plan.taken = null; v.plan = null; v.state = 'idle'; v.t = 1; } } });
+}
+// 음표가 떠오름
+function choirNotes(dt) {
+  if (!player || !player.acting || player.acting.kind !== 'church_choir') return;
+  if (Math.random() < dt * 3) {
+    const singers = [player, ...npcs.filter(v => v.acting && v.acting.kind === 'church_choir')]; const a = singers[Math.floor(Math.random() * singers.length)];
+    const el = document.createElement('div'); el.className = 'bubble emo'; el.style.background = 'transparent'; el.style.boxShadow = 'none'; el.textContent = Math.random() < 0.5 ? '♪' : '♫';
+    el.style.color = ['#D9572E', '#5A3EA8', '#2E7A4A', '#C8902A'][Math.floor(Math.random() * 4)]; el.classList.add('note');
+    $('bubbles').append(el); bubbles.push({ el, a, t: 0, life: 2.2, rise: true, dx: (Math.random() - 0.5) * 30 });
+  }
+}
+
+// ---------------------------------------------------------------- 세례 · 오늘의 운세
+function openBaptism() {
+  let nm = ''; try { nm = localStorage.getItem('mw_name') || ''; } catch (e) { }
+  $('baptName').value = nm; $('baptAsk').hidden = false; $('baptOut').hidden = true; $('baptPanel').hidden = false;
+  setTimeout(() => $('baptName').focus(), 50);
+}
+$('baptGo').onclick = () => {
+  const nm = $('baptName').value.trim().slice(0, 16); if (!nm) { $('baptName').focus(); return; }
+  try { localStorage.setItem('mw_name', nm); } catch (e) { }
+  const sa = saintFor(nm), f = fortuneFor(nm), animal = ANIMALS.find(a => a.k === pickKey);
+  const esc = t => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  $('baptOut').innerHTML = `<p>${esc(nm)} 님(${animal ? animal.n : ''})의 세례명은</p><div class="saint">${sa.name}</div><p>“${sa.meaning}”이라는 뜻을 담았어요.</p>
+    <div class="fort"><b>오늘의 운세</b> <span class="stars">${'★'.repeat(f.stars)}${'☆'.repeat(5 - f.stars)}</span> ${f.luck}<p>${f.text}</p>
+    <p>행운의 색 <b style="color:${f.color[1]}">● ${f.color[0]}</b> · 행운의 물건 <b>${f.item}</b> · 행운의 숫자 <b>${f.number}</b></p>
+    <p><i>${f.word}</i></p></div><p class="hint">같은 이름이면 세례명은 늘 같고, 운세는 날마다 바뀌어요. 재미로 즐겨 주세요.</p>
+    <button class="primary" data-close2>고마워요</button>`;
+  $('baptAsk').hidden = true; $('baptOut').hidden = false; rec.add('baptism');
+  $('baptOut').querySelector('[data-close2]').onclick = () => { $('baptPanel').hidden = true; };
+  bubble(player, '💧', true); sparkle(player.pos.x, player.pos.z, 1.8, 30);
+};
+$('baptName').addEventListener('keydown', e => { if (e.key === 'Enter') $('baptGo').click(); e.stopPropagation(); });
+
+// ---------------------------------------------------------------- 말하기 (정해진 말·이모티콘)
+const EMOJI = ['😊', '🙏', '❤️', '🍁', '🌸', '✨', '🎵', '👋', '🙇', '😴', '👍', '☕', '🥰', '😢', '🌙', '🕊️', '🍂', '🎉'];
+const PHRASES = ['안녕하세요 👋', '반가워요 😊', '고마워요 🙏', '평안하세요 🕊️', '좋은 하루 보내요 ☀️', '함께 걸어요 🍁', '같이 기도해요 🙏', '노래해요 🎵', '잠깐 쉬어 가요 ☕', '오늘도 수고했어요 💪', '잘 자요 🌙', '또 만나요 👋'];
+const REPLY = { '😊': ['😊', '🥰', '👋'], '🙏': ['🙏', '🕊️', '✨'], '❤️': ['❤️', '🥰', '😊'], '👋': ['👋', '😊', '🍁'], '😢': ['🫂', '❤️', '🍵'], '🎵': ['🎶', '🎵', '😊'], '😴': ['🌙', '😴', '💤'] };
+const bubbles = [];
+function bubble(actor, text, emo = false, life = 3.2) {
+  if (!actor) return;
+  for (const b of bubbles) if (b.a === actor && !b.rise) b.t = b.life;   // 같은 동물의 말풍선은 하나만
+  const el = document.createElement('div'); el.className = 'bubble' + (emo ? ' emo' : ''); el.textContent = text;
+  $('bubbles').append(el); bubbles.push({ el, a: actor, t: 0, life });
+}
+const headV = new THREE.Vector3();
+function updateBubbles(dt) {
+  const W = innerWidth, H = innerHeight;
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i]; b.t += dt;
+    if (b.t > b.life || !b.a.root.parent) { b.el.remove(); bubbles.splice(i, 1); continue; }
+    headV.copy(b.a.pos); headV.y += (b.rise ? 1.4 + b.t * 0.5 : 1.72); headV.project(cam);
+    const vis = headV.z < 1 && Math.abs(headV.x) < 1.1 && Math.abs(headV.y) < 1.1;
+    b.el.style.display = vis ? '' : 'none';
+    b.el.style.left = ((headV.x + 1) / 2 * W + (b.dx || 0)) + 'px'; b.el.style.top = ((1 - headV.y) / 2 * H) + 'px';
+    if (b.rise) b.el.style.opacity = String(Math.max(0, 1 - b.t / b.life)); else if (b.t > b.life - 0.4) b.el.classList.add('fade');
+  }
+}
+function say(text, emo) {
+  if (!player) return; bubble(player, text, emo); rec.add('emote');
+  const key = emo ? text : (text.match(/\p{Extended_Pictographic}/u) || ['😊'])[0];
+  const near = npcs.filter(v => v.pos.distanceTo(player.pos) < 8).sort((a, b) => a.pos.distanceTo(player.pos) - b.pos.distanceTo(player.pos)).slice(0, 2);
+  near.forEach((v, i) => setTimeout(() => { const opts = REPLY[key] || [key, '😊', '👋']; bubble(v, opts[Math.floor(Math.random() * opts.length)], true); if (!v.acting && v.state === 'idle') { v.turnTo(Math.atan2(player.pos.x - v.pos.x, player.pos.z - v.pos.z), 1, 1); } }, 900 + i * 700 + Math.random() * 500));
+}
+$('emoGrid').innerHTML = EMOJI.map(e => `<button data-e="${e}">${e}</button>`).join('');
+$('phrList').innerHTML = PHRASES.map(p => `<button data-p="${p}">${p}</button>`).join('');
+$('talkMenu').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; $('talkMenu').hidden = true; if (b.dataset.e) say(b.dataset.e, true); else say(b.dataset.p, false); });
+$('btnTalk').onclick = () => { const m = $('talkMenu'); m.style.top = ($('hud').querySelector('.tools').getBoundingClientRect().bottom + 6) + 'px'; m.hidden = !m.hidden; $('goMenu').hidden = true; };
+let npcChatT = 12;
+function npcChatter(dt) {   // 주민들도 가끔 이모티콘을 띄움
+  npcChatT -= dt; if (npcChatT > 0 || !player) return; npcChatT = 14 + Math.random() * 20;
+  const near = npcs.filter(v => v.pos.distanceTo(player.pos) < 12); if (!near.length) return;
+  const v = near[Math.floor(Math.random() * near.length)];
+  const k = v.acting ? v.acting.kind : '';
+  const pool = k.startsWith('temple') ? ['🙏', '🙇', '🕊️', '✨'] : k === 'church_choir' ? ['🎵', '🎶'] : k.includes('pew') ? ['🙏', '✨', '🕊️'] : ['😊', '🍁', '👋', '☕', '🍂', '🌸'];
+  bubble(v, pool[Math.floor(Math.random() * pool.length)], true);
+}
+
+// 목탁 소리를 손짓에 맞춰
+const MOK_T = 2.4, MOK_HITS = [0.15, 0.75, 1.35, 1.95];
+function moktakHits() {
+  for (const a of [player, ...npcs]) {
+    if (!a || !a.acting || a.acting.kind !== 'temple_moktak' || a.curName !== 'Moktak') { if (a) a.mokPrev = -1; continue; }
+    const t = a.cur.time % MOK_T, p = a.mokPrev ?? -1; a.mokPrev = t;
+    if (p < 0) continue;
+    for (const h of MOK_HITS) if ((p < h && t >= h) || (p > t && (h > p || h <= t))) {
+      if (a === player) { audio && audio.moktakOnce(0.0); rec.add('moktak'); }
+      else if (player && a.pos.distanceTo(player.pos) < 9) audio && audio.moktakOnce(0.0);
+    }
+  }
+}
+function recordTime(dt) {
+  if (!player) return;
+  if (sitting) rec.time('meditate', dt);
+  else if (player.acting && !player.glide) { const A = ACTION_INFO[player.acting.kind]; if (A.rec) rec.time(A.rec, dt); }
 }
 
 // ---------------------------------------------------------------- 등불 빛·서로 비켜 가기
@@ -685,7 +954,7 @@ function frame() {
     if (keys.has('KeyQ')) camState.yaw += dt * 1.6; if (keys.has('KeyR')) camState.yaw -= dt * 1.6;
     if (keys.has('PageUp')) camState.pitch = Math.min(1.45, camState.pitch + dt); if (keys.has('PageDown')) camState.pitch = Math.max(0.05, camState.pitch - dt);
     const sp = keys.has('ShiftLeft') || keys.has('ShiftRight') ? RUN : WALK;
-    if ((ix || iz) && !player.acting && !sitting) {
+    if ((ix || iz) && !player.acting && !sitting && !player.glide) {
       player.path = null; pendingAction = null; marker.visible = false;
       const fy = camState.yaw + Math.PI, fx = Math.sin(fy), fz = Math.cos(fy);
       let mx = fx * iz + fz * ix, mz = fz * iz - fx * ix; const l = Math.hypot(mx, mz); mx /= l; mz /= l;
@@ -694,10 +963,11 @@ function frame() {
     } else if (player.path) {
       player.play('Walking_A');
       if (player.follow(dt, WALK)) { marker.visible = false; player.play('Idle'); if (pendingAction) { const f = pendingAction; pendingAction = null; f(); } }
-    } else if (!sitting && !player.acting && player.curName !== 'Idle' && !player.onFinish) player.play('Idle');
+    } else if (!sitting && !player.acting && !player.glide && player.curName !== 'Idle' && !player.onFinish) player.play('Idle');
     player.update(dt);
     npcs.forEach(n => n.update(dt));
     separate(dt);
+    moktakHits(); recordTime(dt); choirNotes(dt); npcChatter(dt); rec.tick(tAll);
     let indoor = null;
     for (const it of LAYOUT.interiors) { const r = roofs[it.roof], inn = insideRect(it, player.pos.x, player.pos.z, 0.4); if (r) r.visible = !inn; if (inn) indoor = it; }
     if (indoor !== wasIndoor) { if (indoor && !down) { camState.pitch = Math.max(camState.pitch, 0.62); } wasIndoor = indoor; }   // 들어갈 때 한 번만 살짝 올려 줌 — 그다음은 마음대로 돌려 보기
@@ -727,7 +997,8 @@ function frame() {
     if (sitting) { breathT += dt; const ph = breathT % 10, inhale = ph < 4; $('breath').classList.toggle('in', inhale); $('breathText').textContent = inhale ? '숨을 들이쉬어요' : '천천히 내쉬어요'; }
     camTick++; if (camTick % 6 === 0) updateActionButton();
     leaves && leaves(dt, camState.tgt.x, camState.tgt.z, tAll);
-    smoke.update(dt);
+    smoke.update(dt); updateSparkles(dt); aura.update(dt, tAll); updateBubbles(dt);
+    if (camTick % 15 === 0) { const c = $('caption'); document.documentElement.style.setProperty('--capH', (c.hidden ? 22 : c.offsetHeight + 30) + 'px'); }
     windU.value = tAll;
     sun.position.set(camState.tgt.x + sun.userData.off[0], sun.userData.off[1], camState.tgt.z + sun.userData.off[2]); sun.target.position.copy(camState.tgt);
     if (camTick % 20 === 0) pickLamps(camState.tgt);
@@ -742,4 +1013,4 @@ function frame() {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__dbg = { applyTime, TIME, get bloom() { return BLOOM_ON; }, set bloom(v) { BLOOM_ON = v; }, get player() { return player; }, get npcs() { return npcs; }, startWalk, walkTo, POI, SPOTS, startAction, camState, nav, setPick: k => { pickKey = k; } };
+window.__dbg = { applyTime, TIME, get bloom() { return BLOOM_ON; }, set bloom(v) { BLOOM_ON = v; }, get player() { return player; }, get npcs() { return npcs; }, startWalk, walkTo, POI, SPOTS, startAction, camState, nav, setPick: k => { pickKey = k; }, rec, groundH, say, nearSpot: () => nearSpot };

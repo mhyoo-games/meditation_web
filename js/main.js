@@ -9,10 +9,12 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { createRecords, LEVELS, ACH, REWARDS } from './records.js';
 import { saintFor, fortuneFor } from './blessing.js';
 import { MAPS, MAP_ORDER, BOOK_TITLES, PASSAGES, STARS } from './maps.js';
+// 배포할 때마다 바뀌는 버전 (CI가 index.html의 __V__를 커밋 번호로 바꿈) → 예전 파일이 브라우저에 남아 섞이지 않게 모든 파일 주소 뒤에 붙임
+const VQ = (() => { const v = document.documentElement.dataset.v; return v && v !== '__V__' ? '?v=' + v : ''; })();
 import { createAudio, HEART_SUTRA } from './audio.js';
 const MAPKEY = (() => { const q = new URLSearchParams(location.search).get('map'); if (MAPS[q]) return q; try { const s = localStorage.getItem('mw_map'); if (MAPS[s]) return s; } catch (e) { } return 'village'; })();
 const MAP = MAPS[MAPKEY];
-const LAYOUT = (await import(MAP.layout)).default;
+const LAYOUT = (await import(MAP.layout + VQ)).default;
 const FOREST = !!MAP.jumpMap;   // 점프 맵: 발판 위로 오르내리는 진짜 높이 계산을 씀
 import { createNav } from './nav.js';
 import { createMinimap } from './minimap.js';
@@ -29,9 +31,9 @@ const WALK = 1.6, RUN = 2.7;
 // ---------------------------------------------------------------- 파일
 async function bin(path) {
   if (window.ASSET_JS) { const m = await import(window.ASSET_JS(path)); const t = atob(m.default), u = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) u[i] = t.charCodeAt(i); return u.buffer; }
-  const r = await fetch(path); if (!r.ok) throw new Error(path + ' ' + r.status); return r.arrayBuffer();
+  const r = await fetch(path + VQ); if (!r.ok) throw new Error(path + ' ' + r.status); return r.arrayBuffer();
 }
-const asset = p => (window.ASSET_URL ? window.ASSET_URL(p) : p);
+const asset = p => (window.ASSET_URL ? window.ASSET_URL(p) : p + VQ);
 const loader = new GLTFLoader();
 const parse = buf => new Promise((res, rej) => loader.parse(buf, '', res, rej));
 

@@ -18,6 +18,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: 파일 주소에 버전 붙이기 (예전 캐시가 섞이지 않게)
+        run: sed -i "s/__V__/${GITHUB_SHA::8}/g" index.html && grep -c "v=${GITHUB_SHA::8}" index.html
       - uses: actions/configure-pages@v5
         with:
           enablement: true

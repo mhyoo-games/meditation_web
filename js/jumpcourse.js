@@ -1,6 +1,7 @@
 // 점프 맵(하늘 오름 숲)의 발판: 배치 파일의 jump 목록으로 그림을 만들고, 발밑 높이를 알려 줌.
 // 발판은 아래에서는 통과하고(뛰어서 밑에서 올라탈 수 있음) 위에서만 밟혀요.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export function createCourse(scene, L, grad, groundH) {
   const J = L.jump || []; if (!J.length) return null;
@@ -55,6 +56,22 @@ export function createCourse(scene, L, grad, groundH) {
       for (let k = 0; k < 4; k++) { const a = k / 4 * Math.PI * 2 + 0.4, l = mesh(G.sph, M.lamp, Math.sin(a) * j.r * 0.97, 0.95, Math.cos(a) * j.r * 0.97, 0.12, 0.12, 0.12); l.castShadow = false; g.add(l); }
     }
     items.push({ j, g, y0: j.y, hx: j.t === 'branch' ? j.len / 2 + 0.05 : 0, hz: j.t === 'branch' ? j.w / 2 + 0.05 : 0, out });
+  }
+  // 움직이지 않는 발판은 재질별로 한 덩어리로 합쳐 그리기 횟수를 줄임 (300번 → 수십 번)
+  root.updateMatrixWorld(true);
+  const byMat = new Map();
+  for (const it of items) {
+    if (it.j.bob) continue;
+    for (const c of [...it.g.children]) {
+      if (!c.isMesh) continue;
+      const geo = c.geometry.clone().applyMatrix4(c.matrixWorld);
+      if (!byMat.has(c.material)) byMat.set(c.material, { list: [], cast: c.castShadow });
+      byMat.get(c.material).list.push(geo); it.g.remove(c);
+    }
+  }
+  for (const [mat, { list, cast }] of byMat) {
+    const merged = mergeGeometries(list, false); list.forEach(g => g.dispose()); if (!merged) continue;
+    const o = new THREE.Mesh(merged, mat); o.castShadow = cast; o.receiveShadow = true; root.add(o);
   }
   function topOf(it, t) { return it.j.bob ? it.y0 + Math.sin(t * it.j.sp + it.j.ph) * it.j.bob : it.y0; }
   function inside(it, x, z, pad) {

@@ -37,9 +37,21 @@ const parse = buf => new Promise((res, rej) => loader.parse(buf, '', res, rej));
 
 // ---------------------------------------------------------------- 장면
 const canvas = document.getElementById('view');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 const LOWEND = Math.min(screen.width, screen.height) < 500;
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOWEND ? 1.5 : 2));
+// 화질: 가볍게 / 보통 / 선명하게. 휴대폰·메모리 적은 기기는 '가볍게'로 시작하고, 화면이 한 번 꺼지면 한 단계 낮춰서 다시 열어요.
+const QUALITY = {
+  low: { name: '가볍게', dpr: 1, aa: false, bloom: false, shadow: 1024, lamps: 3, npcs: 6 },
+  mid: { name: '보통', dpr: 1.5, aa: true, bloom: true, shadow: 1536, lamps: 6, npcs: 10 },
+  high: { name: '선명하게', dpr: 2, aa: true, bloom: true, shadow: 2048, lamps: 8, npcs: 10 },
+};
+const QKEY = (() => {
+  try { const q = localStorage.getItem('mw_q'); if (QUALITY[q]) return q; } catch (e) { }
+  const weak = LOWEND || matchMedia('(pointer: coarse)').matches || (navigator.deviceMemory && navigator.deviceMemory <= 4);
+  return weak ? 'low' : 'mid';
+})();
+const QS = QUALITY[QKEY];
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: QS.aa, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, QS.dpr));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -49,11 +61,11 @@ scene.fog = new THREE.Fog(0xF4D8BC, 40, 150);
 const cam = new THREE.PerspectiveCamera(42, 1, 0.1, 500);
 const hemi = new THREE.HemisphereLight(0xFFF1DD, 0x8E7050, 1.35); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xFFDDB0, 2.1); sun.position.set(-30, 42, 24); scene.add(sun); scene.add(sun.target);
-sun.castShadow = true; sun.shadow.mapSize.set(LOWEND ? 1024 : 2048, LOWEND ? 1024 : 2048);
+sun.castShadow = true; sun.shadow.mapSize.set(QS.shadow, QS.shadow);
 Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 140 }); sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.03;
 const fill = new THREE.DirectionalLight(0xB8C8FF, 0.45); fill.position.set(25, 18, -30); scene.add(fill);
 // 가까운 등불 몇 개만 진짜 빛으로 (나머지는 빛나는 모양 + 번짐)
-const LAMPS = Array.from({ length: LOWEND ? 4 : 8 }, () => { const l = new THREE.PointLight(0xFFA650, 0, 10, 1.4); scene.add(l); return l; });
+const LAMPS = Array.from({ length: QS.lamps }, () => { const l = new THREE.PointLight(0xFFA650, 0, 10, 1.4); scene.add(l); return l; });
 const skyTex = {}; const texL = new THREE.TextureLoader();
 function skyLoad(k, p) { texL.load(asset(p), t => { t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; skyTex[k] = t; if (TIME[TIME.cur].sky === k && started) applyTime(TIME.cur); }); }
 { // 노을 하늘 (그라데이션 + 별 몇 개)
@@ -74,6 +86,7 @@ outlineMat.onBeforeCompile = s => { s.vertexShader = s.vertexShader.replace('#in
 let glLost = false;
 canvas.addEventListener('webglcontextlost', e => {
   e.preventDefault(); glLost = true;
+  try { const order = ['low', 'mid', 'high'], i = order.indexOf(QKEY); localStorage.setItem('mw_q', order[Math.max(0, i - 1)]); } catch (err) { }   // 다음에는 한 단계 가볍게
   try { rec.save(); sessionStorage.setItem('mw_resume', JSON.stringify({ t: Date.now(), pick: pickKey })); } catch (err) { }
   const o = $('glLost'); if (o) o.hidden = false;
   setTimeout(() => location.reload(), 2500);
@@ -459,9 +472,11 @@ ANIMALS.forEach(a => {
 const windU = { value: 0 };
 function texRepeat(p) { const t = texL.load(asset(p)); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
 function makeTerrain() {
-  const n = HM.n, S = HM.size, g = new THREE.PlaneGeometry(S, S, n - 1, n - 1); g.rotateX(-Math.PI / 2);
+  const st = QKEY === 'low' ? 2 : 1, N0 = HM.n, n = Math.floor((N0 - 1) / st) + 1, S = HM.size * (n - 1) * st / (N0 - 1);   // 가벼운 화질: 땅 격자를 절반으로
+  const g = new THREE.PlaneGeometry(S, S, n - 1, n - 1); g.rotateX(-Math.PI / 2);
+  if (st > 1) g.translate(-(HM.size - S) / 2, 0, -(HM.size - S) / 2);
   const pos = g.attributes.position;
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) pos.setY(j * n + i, HM.h[j * n + i]);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) pos.setY(j * n + i, HM.h[j * st * N0 + i * st]);
   g.computeVertexNormals();
   const splat = texL.load(asset(MAP.splat)); splat.colorSpace = THREE.NoColorSpace; splat.flipY = false;
   const U = { tDirt: { value: texRepeat('assets/tex/dirt.jpg') }, tStone: { value: texRepeat('assets/tex/stone.jpg') }, tSplat: { value: splat }, uSize: { value: S } };
@@ -538,6 +553,11 @@ function placeProps(gltf) {
   const groups = {}; const VAR = ['r', 'r', 'o', 'o', 'o', 'g', 'g'];
   LAYOUT.props.forEach(([m, x, y, z, ry, s], i) => {
     let k = m; const h = Math.abs(Math.sin(i * 12.9898 + x * 78.233) * 43758.5453) % 1;
+    if (QKEY === 'low') {   // 가벼운 화질: 풀·꽃은 일부만, 먼 나무는 반만
+      const h2 = Math.abs(Math.sin(i * 3.17 + z * 11.3) * 9173.31) % 1;
+      if (/Grass|Plant|Flowers/.test(m) && h2 < 0.6) return;
+      if (/Tree|Willow/.test(m) && Math.hypot(x, z) > 26 && h2 < 0.5) return;
+    }
     if (src[m + '~r']) k = m + '~' + VAR[Math.floor(h * VAR.length)];
     (groups[k] = groups[k] || []).push([x, y, z, ry, s]);
   });
@@ -548,7 +568,7 @@ function placeProps(gltf) {
     const geo = s.geometry; if (!geo.attributes.normal) geo.computeVertexNormals();
     const im = new THREE.InstancedMesh(geo, propMaterial(k), list.length);
     list.forEach(([x, y, z, ry, ss], i) => { q.setFromAxisAngle(up, ry); M.compose(v.set(x, y, z), q, sc.set(ss, ss, ss)); im.setMatrixAt(i, M); });
-    im.castShadow = !/Grass|Plant|Flowers|Lilypad/.test(k); im.receiveShadow = true; im.computeBoundingSphere(); im.name = k;
+    im.castShadow = QKEY !== 'low' && !/Grass|Plant|Flowers|Lilypad/.test(k); im.receiveShadow = true; im.computeBoundingSphere(); im.name = k;
     root.add(im);
   }
   scene.add(root); return root;
@@ -579,7 +599,7 @@ ready = loadAll(p => { $('start').textContent = `불러오는 중… ${Math.roun
   .then(() => {
     $('start').disabled = false; $('start').textContent = '산책 시작';
     try { const r = JSON.parse(sessionStorage.getItem('mw_resume') || 'null'); sessionStorage.removeItem('mw_resume');
-      if (r && Date.now() - r.t < 120000) { const b = document.querySelector(`#pick [data-k="${r.pick}"]`); if (b) b.click(); toast('화면을 다시 불러왔어요', '그래픽 메모리가 모자라 잠깐 꺼졌어요. 기록은 그대로예요'); } } catch (e) { }
+      if (r && Date.now() - r.t < 120000) { const b = document.querySelector(`#pick [data-k="${r.pick}"]`); if (b) b.click(); if (r.why === 'q') toast(`화질: ${QS.name}`, '화면이 자꾸 꺼지면 가볍게로 바꿔 보세요'); else toast('화면을 다시 불러왔어요', `그래픽 메모리가 모자라 잠깐 꺼졌어요. 화질을 '${QS.name}'(으)로 낮췄어요. 기록은 그대로예요`); } } catch (e) { }
   })
   .catch(e => { $('start').textContent = '불러오지 못했어요'; console.error(e); });
 
@@ -594,9 +614,10 @@ async function startWalk() {
   await ready; if (started) return; started = true; $('btnJump').hidden = false; minimap.visible = true; document.body.classList.toggle('school', MAP.key === 'school');
   if (!audio) { audio = createAudio(MAP.key); audio.start(); } audio.setVolume(parseFloat($('vol').value));
   for (const a of ANIMALS) {
+    if (a.k !== pickKey && npcs.length >= QS.npcs) continue;   // 가벼운 화질에서는 주민 수를 줄임
     const m = prepModel(models[a.k]);
     if (a.k === pickKey) { player = new Actor(a, m); const s = LAYOUT.spawn.plaza; player.place(s[0], s[2] + 0.6, Math.PI); }
-    else { const v = new Villager(a, m, [LAYOUT.homes[a.k][0], LAYOUT.homes[a.k][2]]); const sp = OUT.walk[npcs.length % OUT.walk.length]; v.place(sp[0] + Math.random(), sp[1] + Math.random(), Math.random() * 6.28); npcs.push(v); }
+    else if (npcs.length < QS.npcs) { const v = new Villager(a, m, [LAYOUT.homes[a.k][0], LAYOUT.homes[a.k][2]]); const sp = OUT.walk[npcs.length % OUT.walk.length]; v.place(sp[0] + Math.random(), sp[1] + Math.random(), Math.random() * 6.28); npcs.push(v); }
   }
   if (!leaves) leaves = MAP.key === 'school' ? makeMotes() : makeLeaves(); camState.tgt.copy(player.pos); applyTime(TIME.cur);
   if (FOREST) { camState.dist = 9; camState.pitch = 0.32; $('climb').hidden = false; joy.show(); }
@@ -699,6 +720,12 @@ $('goMenu').addEventListener('click', e => {
   const p = POI[k] && POI[k].home ? [LAYOUT.homes[pickKey][0], LAYOUT.homes[pickKey][2]] : POI[k].p; walkTo(p[0], p[1]);
 });
 const ORDER = ['dusk', 'night', 'day'];
+$('btnQ').textContent = '⚙️ ' + QS.name;
+$('btnQ').onclick = () => {   // 화질 바꾸기 (그래픽 설정은 다시 불러와야 적용돼요)
+  const order = ['low', 'mid', 'high'], nk = order[(order.indexOf(QKEY) + 1) % 3];
+  try { localStorage.setItem('mw_q', nk); rec.save(); sessionStorage.setItem('mw_resume', JSON.stringify({ t: Date.now(), pick: pickKey, why: 'q' })); } catch (e) { }
+  location.reload();
+};
 $('btnTime').onclick = () => applyTime(ORDER[(ORDER.indexOf(TIME.cur) + 1) % 3]);
 $('vol').oninput = e => audio && audio.setVolume(parseFloat(e.target.value));
 
@@ -1100,7 +1127,7 @@ function recordTime(dt) {
 }
 
 // ---------------------------------------------------------------- 등불 빛·서로 비켜 가기
-let BLOOM_ON = true;
+let BLOOM_ON = QS.bloom;
 function pickLamps(c) {
   const L = (LAYOUT.lights || []).map(p => [p, (p[0] - c.x) ** 2 + (p[2] - c.z) ** 2]).sort((a, b) => a[1] - b[1]);
   LAMPS.forEach((l, i) => { const e = L[i]; l.visible = !!e && TIME.lamp > 0; if (e) { l.position.set(e[0][0], e[0][1], e[0][2]); l.userData.k = e[0][3]; } });

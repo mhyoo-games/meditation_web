@@ -221,7 +221,7 @@ class Actor {
     this.pos = new THREE.Vector3(); this.yaw = 0; this.cur = null; this.path = null; this.pi = 0; this.stuck = 0;
     this.mixer.addEventListener('loop', e => { if (this.onLoop) this.onLoop(e.action); });
     this.mixer.addEventListener('finished', () => { if (this.onFinish) { const f = this.onFinish; this.onFinish = null; f(); } });
-    scene.add(this.root); this.play('Idle');
+    this.root.rotation.order = 'YXZ'; scene.add(this.root); this.play('Idle');
   }
   play(n, fade = 0.25) {
     const a = this.acts[n]; if (!a || this.cur === a) return;
@@ -236,7 +236,11 @@ class Actor {
     this.glide = { x0: this.pos.x, z0: this.pos.z, y0: this.yaw, x1: x, z1: z, y1: yaw === undefined ? this.yaw : yaw, t: 0, dur: Math.max(0.35, dur || d / 1.2), done };
     if (d > 0.08) { this.play('Walking_A', 0.25); this.cur && this.cur.setEffectiveTimeScale(0.7); }
   }
-  sync() { this.root.position.copy(this.pos); this.root.position.y += this.jy || 0; this.root.rotation.y = this.yaw; }
+  sync() {
+    this.root.position.copy(this.pos); this.root.position.y += this.jy || 0; this.root.rotation.y = this.yaw;
+    const th = this.rollA || 0; this.root.rotation.x = th;   // 2단 점프 앞구르기: 몸 가운데를 축으로 돌도록 발밑 위치를 보정
+    if (th) { const c = ROLL_C, sn = Math.sin(th); this.root.position.x -= c * sn * Math.sin(this.yaw); this.root.position.z -= c * sn * Math.cos(this.yaw); this.root.position.y += c * (1 - Math.cos(th)); }
+  }
   turnTo(yaw, dt, k = 8) { let d = yaw - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); this.yaw += d * Math.min(1, dt * k); }
   step(dx, dz, sp, dt) {
     const nx = this.pos.x + dx * sp * dt, nz = this.pos.z + dz * sp * dt;
@@ -582,13 +586,20 @@ $('start').onclick = startWalk;
 // ---------------------------------------------------------------- 조작
 const keys = new Set();
 addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT') return; keys.add(e.code);
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'AltLeft' || e.code === 'AltRight') { e.preventDefault(); if (!e.repeat && started) jump(); return; }   // Alt = 점프 (브라우저 메뉴로 넘어가지 않게 막음)
+  if (e.metaKey || e.ctrlKey) { keys.clear(); return; }   // 단축키를 누르는 동안 손 뗀 키가 '눌린 채'로 남지 않게
+  keys.add(e.code);
   if (/Arrow|Key[WASD]/.test(e.code) && player && (player.acting || sitting)) stopActing();
   if (e.code === 'KeyE') { const b = $('btnAct'); if (!b.hidden) b.click(); }
-  if (e.code === 'Space' && !e.repeat && started) { e.preventDefault(); jump(); }
+  if (e.code === 'Space' && started) { e.preventDefault(); if (!e.repeat) jump(); }
   if (e.code === 'Escape') ['recPanel', 'baptPanel', 'talkMenu', 'goMenu'].forEach(id => { $(id).hidden = true; });
 });
-addEventListener('keyup', e => keys.delete(e.code));
+addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'AltLeft' || e.code === 'AltRight' || e.code === 'Space') e.preventDefault(); if (e.key === 'Meta') keys.clear(); });
+// 다른 창·탭으로 갔다 오면 손 뗀 키가 눌린 채로 남아 혼자 걸어가던 문제 → 그때마다 눌린 키를 비움
+addEventListener('blur', () => keys.clear()); document.addEventListener('visibilitychange', () => keys.clear());
+// 누른 버튼에 초점이 남아 있으면 Space·Enter가 그 버튼(예: 가 보기 메뉴)을 다시 눌러 저절로 걸어가 버림 → 누른 뒤 초점을 뺌
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); if (b) setTimeout(() => b.blur(), 0); }, true);
 const pointers = new Map(); let pinch0 = 0, down = null;
 canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, [e.clientX, e.clientY]); down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 }; if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
 canvas.addEventListener('pointermove', e => {
@@ -1057,7 +1068,7 @@ function separate(dt) {   // 동물끼리 겹치지 않게 살짝 밀어 냄 (�
 
 // ---------------------------------------------------------------- 점프 · 2단 점프
 // 땅에서 한 번 누르면 폴짝, 공중에서 한 번 더 누르면 바라보는 쪽으로 휙 날아가요 (빛 꼬리).
-const GRAV = 17, JUMP_V = 5.6, DASH_V = 8.5, DASH_T = 0.32;
+const GRAV = 17, JUMP_V = 5.6, DASH_V = 8.5, DASH_T = 0.4, ROLL_T = 0.46, ROLL_C = 0.62;
 const dashCol = MAP.key === 'school' ? 0xA8D8FF : 0xFFB070;
 function jump() {
   const p = player; if (!p || sitting || p.glide) return;
@@ -1066,7 +1077,7 @@ function jump() {
     p.air = true; p.vy = JUMP_V; p.jy = Math.max(0, p.jy || 0); p.flashed = false; p.dash = null;
     p.play('Jump', 0.12); audio && audio.hop(); rec.add('jumps');
   } else if (!p.flashed) {
-    p.flashed = true; p.vy = Math.max(p.vy, 0) + 2.2;
+    p.flashed = true; p.vy = Math.max(p.vy, 0) + 3.4; p.roll = 0;
     p.dash = { x: Math.sin(p.yaw), z: Math.cos(p.yaw), t: 0 };
     audio && audio.whoosh(); rec.add('flash');
     trail(p, 14);
@@ -1078,8 +1089,12 @@ function airStep(a, dt, gy) {
     const d = a.dash; d.t += dt; const k = 1 - d.t / DASH_T;
     if (k <= 0) a.dash = null; else { a.step(d.x, d.z, DASH_V * (0.4 + 0.6 * k), dt); if (Math.random() < 0.6) trail(a, 1); }
   }
+  if (a.roll !== undefined && a.roll !== null) {
+    a.roll += dt; const k = Math.min(1, a.roll / ROLL_T), e = k < 0.5 ? 2 * k * k : 1 - 2 * (1 - k) * (1 - k);
+    a.rollA = e * Math.PI * 2; if (k >= 1) { a.roll = null; a.rollA = 0; }
+  }
   if (a.jy <= 0 && a.vy < 0) {
-    a.jy = 0; a.air = false; a.dash = null;
+    a.jy = 0; a.air = false; a.dash = null; a.roll = null; a.rollA = 0;
     a.play('Idle', 0.15); audio && audio.land(); puff(a.pos.x, a.pos.z);
   }
 }

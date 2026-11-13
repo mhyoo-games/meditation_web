@@ -4,7 +4,7 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const dayNum = s => Math.round(new Date(s + 'T12:00:00').getTime() / 864e5);
 
 // 점수: 초 단위 기록은 10초에 1점, 횟수 기록은 하나에 몇 점
-export const POINTS = { meditate: 0.1, pray: 0.1, sing: 0.1, bowTime: 0.05, read: 0.1, magic: 0.1, stars: 0.1, books: 1, spells: 1, starsSeen: 2, bows: 3, b108: 108, moktak: 0.2, donate: 2, incense: 2, candle: 2, baptism: 5, visit: 10, emote: 0.5 };
+export const POINTS = { meditate: 0.1, pray: 0.1, sing: 0.1, bowTime: 0.05, read: 0.1, magic: 0.1, stars: 0.1, books: 1, spells: 1, forestTop: 20, forestPure: 30, starsSeen: 2, bows: 3, b108: 108, moktak: 0.2, donate: 2, incense: 2, candle: 2, baptism: 5, visit: 10, emote: 0.5 };
 export const LEVELS = [
   [0, '씨앗', '🌰'], [40, '새싹', '🌱'], [120, '잎새', '🍃'], [300, '단풍잎', '🍁'], [700, '산들바람', '🌬️'],
   [1400, '고요한 숲', '🌲'], [2600, '맑은 연못', '🪷'], [4500, '달빛', '🌙'], [8000, '깨달음', '✨'],
@@ -36,6 +36,10 @@ export const ACH = [
   { id: 'school', icon: '🏰', name: '마법학교 입학', desc: '별빛 마법학교에 가 보기', ok: r => r.zones.includes('school') },
   { id: 'read10', icon: '📖', name: '책벌레', desc: '도서관에서 10분 읽기', ok: r => (r.t.read || 0) >= 600, prog: r => [r.t.read || 0, 600, fmtMin] },
   { id: 'books10', icon: '📚', name: '열 권의 책', desc: '책장에서 책 10권 고르기', ok: r => (r.n.books || 0) >= 10, prog: r => [r.n.books || 0, 10] },
+  { id: 'forest1', icon: '🌳', name: '하늘 정원', desc: '하늘 오름 숲 꼭대기까지 오르기', ok: r => (r.n.forestTop || 0) >= 1 },
+  { id: 'forestPure', icon: '🪶', name: '쉼터 없이 한 번에', desc: '순간이동 없이 꼭대기까지', ok: r => (r.n.forestPure || 0) >= 1 },
+  { id: 'forest5', icon: '🐿️', name: '숲의 단골', desc: '꼭대기 5번', ok: r => (r.n.forestTop || 0) >= 5, prog: r => [r.n.forestTop || 0, 5] },
+  { id: 'falls30', icon: '🍃', name: '넘어져도 괜찮아', desc: '높은 곳에서 30번 떨어지고도 다시 오르기', ok: r => (r.n.falls || 0) >= 30, prog: r => [r.n.falls || 0, 30] },
   { id: 'jump100', icon: '🐇', name: '폴짝폴짝', desc: '점프 100번', ok: r => (r.n.jumps || 0) >= 100, prog: r => [r.n.jumps || 0, 100] },
   { id: 'flash50', icon: '💨', name: '휙휙!', desc: '2단 점프 50번', ok: r => (r.n.flash || 0) >= 50, prog: r => [r.n.flash || 0, 50] },
   { id: 'spell1', icon: '✨', name: '첫 마법', desc: '마법진에서 마법 연습하기', ok: r => (r.n.spells || 0) >= 1 },
@@ -74,6 +78,8 @@ export function createRecords(onUnlock, onLevel) {
     visit,
     time(kind, dt) { r.t[kind] = (r.t[kind] || 0) + dt; const d = today(); if (r.todayD !== d) { r.todayD = d; r.todayT = {}; } r.todayT[kind] = (r.todayT[kind] || 0) + dt; dirty = true; },
     add(kind, k = 1) { r.n[kind] = (r.n[kind] || 0) + k; dirty = true; check(); },
+    low(kind, v) { r.rec = r.rec || {}; if (!(r.rec[kind] <= v)) { r.rec[kind] = v; dirty = true; return true; } return false; },    // 작을수록 좋은 기록 (시간)
+    high(kind, v) { r.rec = r.rec || {}; if (!(r.rec[kind] >= v)) { r.rec[kind] = v; dirty = true; return true; } return false; },  // 클수록 좋은 기록 (높이)
     zone(z) { if (!r.zones.includes(z)) { r.zones.push(z); dirty = true; check(); } },
     tick(now) { if (dirty && now - lastSave > 5) { lastSave = now; check(); save(); } },
     save,

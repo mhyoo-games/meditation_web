@@ -5,6 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import LAYOUT from '../assets/village/village_layout.js';
 import { createAudio, HEART_SUTRA } from './audio.js';
 import { createNav } from './nav.js';
@@ -178,7 +179,7 @@ const OUT = {
 // ---------------------------------------------------------------- 캐릭터
 let ANIMS = [];
 function prepModel(g) {
-  const root = g.scene, outlines = [];
+  const root = SkeletonUtils.clone(g.scene), outlines = [];   // 처음으로 돌아가 다시 시작해도 되게 매번 복제
   root.traverse(o => {
     if (!o.isMesh) return; o.frustumCulled = false;
     const nm = o.material.name;
@@ -217,6 +218,7 @@ class Actor {
   step(dx, dz, sp, dt) {
     const nx = this.pos.x + dx * sp * dt, nz = this.pos.z + dz * sp * dt;
     if (!blocked(nx, nz)) { this.pos.x = nx; this.pos.z = nz; return true; }
+    if (blocked(this.pos.x, this.pos.z) && Math.hypot(this.pos.x, this.pos.z) < LAYOUT.bound) { this.pos.x = nx; this.pos.z = nz; return true; }   // 이미 막힌 곳 안(의자·방석에서 일어난 직후 등)이면 걸어 나올 수 있게
     if (!blocked(nx, this.pos.z)) { this.pos.x = nx; return true; }
     if (!blocked(this.pos.x, nz)) { this.pos.z = nz; return true; }
     return false;
@@ -244,6 +246,7 @@ class Actor {
   endAction(after) {
     const spot = this.acting; if (!spot) { after && after(); return; }
     const A = ACTION_INFO[spot.kind]; this.acting = null; if (spot.taken === this) spot.taken = null;
+    const _after = after; after = () => { unstick(this, 1.5); _after && _after(); };
     if (A.exit && this.acts[A.exit]) { this.play(A.exit, 0.3); this.onFinish = () => { this.play('Idle'); after && after(); }; }
     else { this.onFinish = null; this.play('Idle'); after && after(); }
   }
@@ -476,13 +479,13 @@ marker.rotation.x = -Math.PI / 2; marker.visible = false; scene.add(marker);
 
 async function startWalk() {
   await ready; if (started) return; started = true;
-  audio = createAudio(); audio.start(); audio.setVolume(parseFloat($('vol').value));
+  if (!audio) { audio = createAudio(); audio.start(); } audio.setVolume(parseFloat($('vol').value));
   for (const a of ANIMALS) {
     const m = prepModel(models[a.k]);
     if (a.k === pickKey) { player = new Actor(a, m); const s = LAYOUT.spawn.plaza; player.place(s[0], s[2] + 0.6, Math.PI); }
     else { const v = new Villager(a, m, [LAYOUT.homes[a.k][0], LAYOUT.homes[a.k][2]]); const sp = OUT.walk[npcs.length % OUT.walk.length]; v.place(sp[0] + Math.random(), sp[1] + Math.random(), Math.random() * 6.28); npcs.push(v); }
   }
-  leaves = makeLeaves(); camState.tgt.copy(player.pos);
+  if (!leaves) leaves = makeLeaves(); camState.tgt.copy(player.pos); applyTime(TIME.cur);
   $('intro').hidden = true; $('hud').hidden = false; $('help').hidden = false;
   setTimeout(() => { $('help').hidden = true; }, 15000);
   hookAudioText();
@@ -526,7 +529,10 @@ function walkTo(x, z, then) {
 $('btnGo').onclick = () => { $('goMenu').hidden = !$('goMenu').hidden; };
 $('goMenu').addEventListener('click', e => {
   const b = e.target.closest('[data-go]'); if (!b || !player) return; $('goMenu').hidden = true;
-  const k = b.dataset.go; const p = k === 'home' ? [LAYOUT.homes[pickKey][0], LAYOUT.homes[pickKey][2]] : POI[k].p; walkTo(p[0], p[1]);
+  const k = b.dataset.go;
+  if (k === 'rescue') { rescue(); return; }
+  if (k === 'reset') { resetToIntro(); return; }
+  const p = k === 'home' ? [LAYOUT.homes[pickKey][0], LAYOUT.homes[pickKey][2]] : POI[k].p; walkTo(p[0], p[1]);
 });
 const ORDER = ['dusk', 'night', 'day'];
 $('btnTime').onclick = () => applyTime(ORDER[(ORDER.indexOf(TIME.cur) + 1) % 3]);
@@ -608,6 +614,48 @@ function setZone(z) {
   $('placeName').textContent = names[z][0]; $('placeSub').textContent = names[z][1];
 }
 
+// ---------------------------------------------------------------- 끼임 탈출 · 처음으로
+function freeSpotNear(x, z, maxR = 8) {   // 가까운 빈자리를 나선형으로 찾기
+  if (!blockedR(x, z, RAD + 0.1)) return [x, z];
+  for (let r = 0.3; r <= maxR; r += 0.3) {
+    const n = Math.ceil(r * 8);
+    for (let k = 0; k < n; k++) { const a = k / n * Math.PI * 2, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; if (!blockedR(px, pz, RAD + 0.1) && nav.find(px, pz, 0, 4.6)) return [px, pz]; }
+  }
+  return null;
+}
+function unstick(a, maxR = 8) {
+  if (!a || a.acting) return false;
+  if (!blockedR(a.pos.x, a.pos.z, RAD)) return false;
+  const p = freeSpotNear(a.pos.x, a.pos.z, maxR); if (!p) return false;
+  a.pos.x = p[0]; a.pos.z = p[1]; return true;
+}
+function rescue() {   // 버튼: 지금 자리에서 가장 가까운 빈자리로, 그래도 안 되면 광장으로
+  if (!player) return;
+  stopActing(() => {
+    player.path = null; pendingAction = null; marker.visible = false;
+    let p = freeSpotNear(player.pos.x, player.pos.z, 6);
+    if (p && Math.hypot(p[0] - player.pos.x, p[1] - player.pos.z) < 0.05) {   // 막힌 곳은 아닌데 갇혀 있으면: 둘레에서 광장까지 길이 있는 곳으로
+      p = null;
+      for (let r = 0.6; r <= 6 && !p; r += 0.4) for (let k = 0; k < 16 && !p; k++) { const a = k / 16 * Math.PI * 2, x = player.pos.x + Math.cos(a) * r, z = player.pos.z + Math.sin(a) * r; if (!blockedR(x, z, RAD + 0.1)) { const q = nav.find(x, z, 0, 4.6); if (q) p = [x, z]; } }
+    }
+    if (!p) { const s = LAYOUT.spawn.plaza; p = [s[0], s[2] + 0.6]; }
+    player.place(p[0], p[1]); camState.tgt.set(player.pos.x, player.pos.y + 0.7, player.pos.z);
+    $('actMsg').textContent = '빠져나왔어요!'; $('actMsg').hidden = false; setTimeout(() => { if (!player || !player.acting) $('actMsg').hidden = true; }, 1800);
+  });
+}
+function resetToIntro() {   // 처음 화면(동물 고르기)으로
+  if (!started) return;
+  if (sitting) { sitting = false; $('btnSit').classList.remove('on'); $('btnSit').textContent = '명상하기'; $('breath').hidden = true; }
+  for (const a of [player, ...npcs]) { if (!a) continue; a.mixer.stopAllAction(); scene.remove(a.root); }
+  SPOTS.forEach(s => { s.taken = null; });
+  player = null; npcs = []; pendingAction = null; nearSpot = null; marker.visible = false; wasIndoor = null;
+  for (const r of Object.values(roofs)) if (r) r.visible = true;
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  audio && audio.setLevels({ village: 1, temple: 0, church: 0, cathedral: 0 }); setZone('village');
+  ['hud', 'caption', 'actMsg', 'help', 'goMenu', 'btnAct'].forEach(id => { $(id).hidden = true; });
+  $('intro').hidden = false; started = false;
+}
+
 // ---------------------------------------------------------------- 등불 빛·서로 비켜 가기
 let BLOOM_ON = true;
 function pickLamps(c) {
@@ -627,7 +675,7 @@ function separate(dt) {   // 동물끼리 겹치지 않게 살짝 밀어 냄 (�
 
 // ---------------------------------------------------------------- 루프
 const clock = new THREE.Clock(); let tAll = 0;
-const tmpV = new THREE.Vector3(), dirV = new THREE.Vector3(); const camRay = new THREE.Raycaster(); let camTick = 0, camFree = 99, camCur = 7.5, wasIndoor = null, inK = 0;
+const tmpV = new THREE.Vector3(), dirV = new THREE.Vector3(); const camRay = new THREE.Raycaster(); let keyStuck = 0, camTick = 0, camFree = 99, camCur = 7.5, wasIndoor = null, inK = 0;
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05); tAll += dt;
   if (player) {
@@ -641,7 +689,8 @@ function frame() {
       player.path = null; pendingAction = null; marker.visible = false;
       const fy = camState.yaw + Math.PI, fx = Math.sin(fy), fz = Math.cos(fy);
       let mx = fx * iz + fz * ix, mz = fz * iz - fx * ix; const l = Math.hypot(mx, mz); mx /= l; mz /= l;
-      player.step(mx, mz, sp, dt); player.turnTo(Math.atan2(mx, mz), dt, 10); player.play(sp > WALK ? 'Running_A' : 'Walking_A');
+      if (!player.step(mx, mz, sp, dt)) { keyStuck += dt; if (keyStuck > 1.2) { keyStuck = 0; unstick(player, 3); } } else keyStuck = 0;
+      player.turnTo(Math.atan2(mx, mz), dt, 10); player.play(sp > WALK ? 'Running_A' : 'Walking_A');
     } else if (player.path) {
       player.play('Walking_A');
       if (player.follow(dt, WALK)) { marker.visible = false; player.play('Idle'); if (pendingAction) { const f = pendingAction; pendingAction = null; f(); } }

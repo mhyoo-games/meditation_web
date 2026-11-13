@@ -612,7 +612,7 @@ function startAction(spot, mode = null) {
     spot.taken = player; marker.visible = false; player.mode = mode;
     const A = ACTION_INFO[spot.kind], M = mode && A.modes ? A.modes[mode] : null;
     player.doAction(spot, () => {
-      showActBar(true); const b = $('btnAct'); b.hidden = false; b.classList.add('on'); b.textContent = '일어나기'; $('btnAlt').hidden = true;
+      showActBar(true); const b = $('btnAct'); b.hidden = false; b.classList.add('on'); b.textContent = '일어나기'; $('btnAlt').hidden = true; $('actMore').hidden = true; moreKey = '';
       $('actMsg').textContent = (M && M.msg) || A.msg; $('actMsg').hidden = false;
     });
     if (A.count) rec.add(A.count);
@@ -642,6 +642,24 @@ function showActBar(on) { $('actBar').hidden = !on; }
 $('btnAct').onclick = () => { if (!player) return; if (player.acting) { stopActing(); return; } if (nearSpot) startAction(nearSpot); };
 $('btnAlt').onclick = () => { if (!player || player.acting || !nearSpot) return; const A = ACTION_INFO[nearSpot.kind]; if (A.modes) startAction(nearSpot, Object.keys(A.modes)[0]); };
 function nearest(kind) { return SPOTS.filter(s => s.kind === kind && !s.taken).sort((a, b) => Math.hypot(a.x - player.pos.x, a.z - player.pos.z) - Math.hypot(b.x - player.pos.x, b.z - player.pos.z))[0] || null; }
+// 그 장소에서 할 수 있는 일 (멀리 있어도 누르면 그 자리로 걸어가서 시작)
+const ZONE_ACTS = {
+  temple: [['temple_bow'], ['temple_bow', 'b108'], ['temple_moktak'], ['temple_donate'], ['temple_incense']],
+  church: [['church_pew'], ['church_choir']],
+  cathedral: [['cathedral_pew'], ['cathedral_candle'], ['cathedral_baptism']],
+};
+let moreKey = '';
+function setMore(list) {
+  const key = list.map(x => x.join(':')).join('|'); if (key === moreKey) return; moreKey = key;
+  const box = $('actMore'); box.innerHTML = '';
+  for (const [kind, mode] of list) {
+    const A = ACTION_INFO[kind], b = document.createElement('button');
+    b.className = 'act' + (mode ? ' alt' : ''); b.textContent = mode ? A.modes[mode].label : A.label;
+    b.onclick = () => { if (!player || player.acting) return; const sp = nearest(kind); if (sp) startAction(sp, mode || null); else { $('actMsg').textContent = '지금은 자리가 모두 찼어요. 조금 뒤에 다시 해 보세요.'; $('actMsg').hidden = false; setTimeout(() => { if (!player.acting) $('actMsg').hidden = true; }, 2000); } };
+    box.append(b);
+  }
+  box.hidden = !list.length;
+}
 function updateActionButton() {
   if (!player || player.acting) return;
   let best = null, bd = 2.2;
@@ -652,7 +670,10 @@ function updateActionButton() {
     const A = ACTION_INFO[best.kind]; b.hidden = false; b.textContent = A.label;
     if (A.modes) { const m = Object.values(A.modes)[0]; b2.hidden = false; b2.textContent = m.label; } else b2.hidden = true;
   } else { b.hidden = true; b2.hidden = true; }
-  showActBar(!!best && !sitting);
+  // 그 장소 안이면 할 수 있는 다른 일도 함께 보여 줌
+  const zl = (ZONE_ACTS[zoneNow] || []).filter(([k, m]) => !(best && best.kind === k && (!m || ACTION_INFO[k].modes)));
+  setMore(sitting ? [] : zl);
+  showActBar(!sitting && (!!best || zl.length > 0));
 }
 
 // ---------------------------------------------------------------- 자막
@@ -979,7 +1000,7 @@ function frame() {
     inK += ((indoor ? 1 : 0) - inK) * Math.min(1, dt * 2);
     hemi.intensity = TIME[TIME.cur].hemi[2] * (1 + inK * (TIME.cur === 'night' ? 1.4 : TIME.cur === 'dusk' ? 0.5 : 0.15));
     seeU.uSeeR.value += ((indoor ? 3.4 : 0.8 + camCur * 0.06) - seeU.uSeeR.value) * Math.min(1, dt * 3);
-    ++camTick; camFree = dist;   // 가리는 벽·지붕·나무는 점무늬로 비쳐 보이니 카메라는 당기지 않고 마음대로 돌려 볼 수 있음
+    camFree = dist;   // 가리는 벽·지붕·나무는 점무늬로 비쳐 보이니 카메라는 당기지 않고 마음대로 돌려 볼 수 있음
     camCur += (Math.min(dist, camFree) - camCur) * Math.min(1, dt * (camFree < camCur ? 12 : 3));
     cam.position.copy(camState.tgt).addScaledVector(dirV, camCur);
     const gy = groundH(cam.position.x, cam.position.z) + 0.5; if (cam.position.y < gy) cam.position.y = gy;

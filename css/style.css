@@ -112,3 +112,8 @@ button.act.alt{background:linear-gradient(180deg,#8A6AD0,#5A3EA8);box-shadow:0 4
 }
 .bubble.note::after{display:none}
 @media (min-width:900px){#actBar{left:auto;right:18px;transform:none;flex-direction:column;align-items:flex-end}}
+#actMore{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:min(560px,calc(100vw - 24px))}
+#actMore[hidden]{display:none}
+#actMore button{font-size:14px;padding:9px 14px;border-radius:999px;white-space:nowrap;min-height:40px}
+#actBar{flex-wrap:wrap;justify-content:center;align-items:center;width:max-content;max-width:calc(100vw - 24px)}
+@media (min-width:900px){#actMore{flex-direction:column;align-items:flex-end}}

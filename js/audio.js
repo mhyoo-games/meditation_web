@@ -451,6 +451,14 @@ export function createAudio(mapKey = 'village') {
     setVolume(v) { master.gain.setTargetAtTime(v, ctx.currentTime, 0.1); },
     nextSong(zone) { const S = players[zone]; if (!S) return; S.n = 0; S.beat = 0; S.i = (S.i + 1) % SONGS[zone].length; S.t = 0; if (choir) { choir.amp(0, ctx.currentTime, 0.1); choirLow.amp(0, ctx.currentTime, 0.1); } },
     page() { pageSound(master, ctx.currentTime + 0.02, 0.05); },
+    hop() { const t = ctx.currentTime + 0.01; const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(420, t); o.frequency.exponentialRampToValueAtTime(880, t + 0.12);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.16); o.connect(g).connect(master); o.start(t); o.stop(t + 0.2); },
+    whoosh() { const t = ctx.currentTime + 0.01; const s = ctx.createBufferSource(); s.buffer = noiseBuf;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 2.5; f.frequency.setValueAtTime(600, t); f.frequency.exponentialRampToValueAtTime(3800, t + 0.28);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.09, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.4);
+      s.connect(f).connect(g).connect(master); s.start(t, Math.random()); s.stop(t + 0.45);
+      [1568, 2093].forEach((fr, i) => pluck(master, fr, t + 0.04 + i * 0.06, 0.025, 0.6, 4)); },
+    land() { noiseHit(master, ctx.currentTime + 0.01, 500, 1, 0.05, 0.08, 'lowpass'); },
     nextSchool(zone) { const S = zs[zone]; if (S) { S.i++; S.t = 0; } },
     chime() { const t = ctx.currentTime + 0.02; [2093, 2637, 3136].forEach((f, i) => pluck(master, f, t + i * 0.12, 0.05, 2.2, 2.7)); },
     moktakOnce(delay = 0.05) { moktak(ctx.currentTime + delay, 0.6); },

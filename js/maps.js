@@ -6,6 +6,7 @@ export const MAPS = {
     layout: '../assets/village/village_layout.js', world: 'assets/village/village.glb', splat: 'assets/tex/splat.png',
     chars: 'assets/characters/', portraits: 'assets/portraits/', baseZone: 'village', zones: ['temple', 'church', 'cathedral'],
     jobs: { hamster: '프로그래머', rabbit: '제빵사', cat: '바리스타', dog: '우체부', bear: '니트 스웨터', panda: '초록 셔츠', fox: '와인색 코트', raccoon: '푸른 셔츠', squirrel: '단풍색 셔츠', deer: '크림 니트', lion: '마을 경비대장' },
+    who: { hamster: '밤톨', rabbit: '호두', cat: '모카', dog: '갈잎', bear: '고구마', panda: '송편', fox: '홍시', raccoon: '솔방울', squirrel: '단풍이', deer: '억새', lion: '노을' },
     u: {},
     poi: B => ({
       temple: { p: [B.temple.door[0], B.temple.door[2]], name: '단풍사 (절)' },
@@ -40,6 +41,7 @@ export const MAPS = {
     layout: '../assets/school/school_layout.js', world: 'assets/school/school.glb', splat: 'assets/school/splat.png',
     chars: 'assets/characters_pc/', portraits: 'assets/portraits_pc/', baseZone: 'school', zones: ['hall', 'library', 'tower'],
     jobs: { hamster: '견습 마법사', rabbit: '물약 반', cat: '별자리 반', dog: '빗자루 반', bear: '약초 반', panda: '주문 반', fox: '여우불 반', raccoon: '마법 도구 반', squirrel: '도서관 도우미', deer: '숲의 마법 반', lion: '학생회장' },
+    who: { hamster: '별똥', rabbit: '방울', cat: '은하', dog: '바람', bear: '이끼', panda: '수정', fox: '반딧불', raccoon: '톱니', squirrel: '책갈피', deer: '이슬', lion: '오로라' },
     u: {hamster: 2.8431, rabbit: 2.8941, cat: 2.758, dog: 2.8819, lion: 2.6559, bear: 2.8642, panda: 2.8642, fox: 2.7334, raccoon: 2.7875, squirrel: 2.9316, deer: 2.8802},
     poi: B => ({
       hall: { p: [B.hall.door[0], B.hall.door[2]], name: '대강당' },

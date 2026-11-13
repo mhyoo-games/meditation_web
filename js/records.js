@@ -36,6 +36,8 @@ export const ACH = [
   { id: 'school', icon: '🏰', name: '마법학교 입학', desc: '별빛 마법학교에 가 보기', ok: r => r.zones.includes('school') },
   { id: 'read10', icon: '📖', name: '책벌레', desc: '도서관에서 10분 읽기', ok: r => (r.t.read || 0) >= 600, prog: r => [r.t.read || 0, 600, fmtMin] },
   { id: 'books10', icon: '📚', name: '열 권의 책', desc: '책장에서 책 10권 고르기', ok: r => (r.n.books || 0) >= 10, prog: r => [r.n.books || 0, 10] },
+  { id: 'jump100', icon: '🐇', name: '폴짝폴짝', desc: '점프 100번', ok: r => (r.n.jumps || 0) >= 100, prog: r => [r.n.jumps || 0, 100] },
+  { id: 'flash50', icon: '💨', name: '휙휙!', desc: '2단 점프 50번', ok: r => (r.n.flash || 0) >= 50, prog: r => [r.n.flash || 0, 50] },
   { id: 'spell1', icon: '✨', name: '첫 마법', desc: '마법진에서 마법 연습하기', ok: r => (r.n.spells || 0) >= 1 },
   { id: 'spell30', icon: '🪄', name: '꼬마 마법사', desc: '마법 연습 30번', ok: r => (r.n.spells || 0) >= 30, prog: r => [r.n.spells || 0, 30] },
   { id: 'stars5', icon: '🔭', name: '별지기', desc: '천문대에서 별자리 5번 찾기', ok: r => (r.n.starsSeen || 0) >= 5, prog: r => [r.n.starsSeen || 0, 5] },

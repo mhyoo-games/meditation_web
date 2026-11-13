@@ -19,7 +19,7 @@ import { createNav } from './nav.js';
 const ANIMALS = [
   ['hamster', '햄스터', 3.017], ['rabbit', '토끼', 3.069], ['cat', '고양이', 2.756], ['dog', '강아지', 3.058], ['bear', '곰', 3.044], ['panda', '판다', 3.047],
   ['fox', '여우', 2.721], ['raccoon', '너구리', 2.964], ['squirrel', '다람쥐', 3.113], ['deer', '사슴', 2.866], ['lion', '사자', 2.84],
-].map(([k, n, u]) => ({ k, n, u: MAP.u[k] || u, job: MAP.jobs[k] }));
+].map(([k, s, u]) => ({ k, s, n: (MAP.who && MAP.who[k]) || s, u: MAP.u[k] || u, job: MAP.jobs[k] }));
 const CH_SCALE = 1.25;
 const WALK = 1.6, RUN = 2.7;
 
@@ -236,7 +236,7 @@ class Actor {
     this.glide = { x0: this.pos.x, z0: this.pos.z, y0: this.yaw, x1: x, z1: z, y1: yaw === undefined ? this.yaw : yaw, t: 0, dur: Math.max(0.35, dur || d / 1.2), done };
     if (d > 0.08) { this.play('Walking_A', 0.25); this.cur && this.cur.setEffectiveTimeScale(0.7); }
   }
-  sync() { this.root.position.copy(this.pos); this.root.rotation.y = this.yaw; }
+  sync() { this.root.position.copy(this.pos); this.root.position.y += this.jy || 0; this.root.rotation.y = this.yaw; }
   turnTo(yaw, dt, k = 8) { let d = yaw - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); this.yaw += d * Math.min(1, dt * k); }
   step(dx, dz, sp, dt) {
     const nx = this.pos.x + dx * sp * dt, nz = this.pos.z + dz * sp * dt;
@@ -313,6 +313,7 @@ class Actor {
     }
     const gy = groundH(this.pos.x, this.pos.z), dyv = gy - this.pos.y;
     this.pos.y += dyv * Math.min(1, dt * (dyv > 0 ? 9 : 7));   // 올라갈 때·내려갈 때 부드럽게
+    if (this.air) airStep(this, dt, gy);
     this.sync();
   }
 }
@@ -423,7 +424,7 @@ let pickKey = 'hamster';
 const pick = $('pick');
 ANIMALS.forEach(a => {
   const b = document.createElement('button'); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(a.k === pickKey)); b.dataset.k = a.k;
-  b.innerHTML = `<img src="${asset(`${MAP.portraits}${a.k}.png`)}" alt="" width="96" height="120">${a.n}<small>${a.job}</small>`;
+  b.innerHTML = `<img src="${asset(`${MAP.portraits}${a.k}.png`)}" alt="" width="96" height="120">${a.n}<small>${a.s} · ${a.job}</small>`;
   b.onclick = () => { pickKey = a.k; pick.querySelectorAll('button').forEach(x => x.setAttribute('aria-checked', String(x.dataset.k === pickKey))); };
   pick.appendChild(b);
 });
@@ -560,7 +561,7 @@ const marker = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.26, 24), new THREE.
 marker.rotation.x = -Math.PI / 2; marker.visible = false; scene.add(marker);
 
 async function startWalk() {
-  await ready; if (started) return; started = true;
+  await ready; if (started) return; started = true; $('btnJump').hidden = false; document.body.classList.toggle('school', MAP.key === 'school');
   if (!audio) { audio = createAudio(MAP.key); audio.start(); } audio.setVolume(parseFloat($('vol').value));
   for (const a of ANIMALS) {
     const m = prepModel(models[a.k]);
@@ -584,6 +585,7 @@ addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return; keys.add(e.code);
   if (/Arrow|Key[WASD]/.test(e.code) && player && (player.acting || sitting)) stopActing();
   if (e.code === 'KeyE') { const b = $('btnAct'); if (!b.hidden) b.click(); }
+  if (e.code === 'Space' && !e.repeat && started) { e.preventDefault(); jump(); }
   if (e.code === 'Escape') ['recPanel', 'baptPanel', 'talkMenu', 'goMenu'].forEach(id => { $(id).hidden = true; });
 });
 addEventListener('keyup', e => keys.delete(e.code));
@@ -645,6 +647,7 @@ $('vol').oninput = e => audio && audio.setVolume(parseFloat(e.target.value));
 // 명상 (그 자리에 앉아 호흡)
 let breathT = 0;
 function toggleSit() {
+  if (player && player.air) return;
   if (!player) return;
   if (player.acting) { stopActing(); return; }
   if (!sitting) {
@@ -799,7 +802,7 @@ function rescue() {   // 버튼: 지금 자리에서 가장 가까운 빈자리�
   });
 }
 function resetToIntro() {   // 처음 화면(동물 고르기)으로
-  if (!started) return;
+  if (!started) return; $('btnJump').hidden = true;
   if (sitting) { sitting = false; $('btnSit').classList.remove('on'); $('btnSit').textContent = '명상하기'; $('breath').hidden = true; }
   for (const a of [player, ...npcs]) { if (!a) continue; a.mixer.stopAllAction(); scene.remove(a.root); }
   SPOTS.forEach(s => { s.taken = null; });
@@ -832,7 +835,7 @@ function renderRecords() {
   const pct = N ? Math.round((p - L[0]) / (N[0] - L[0]) * 100) : 100;
   $('recLevel').innerHTML = `<div class="lvl"><span class="ic">${L[2]}</span><div style="flex:1"><b>${L[1]}</b> · 마음 점수 ${p}${N ? ` <small>(다음 ${N[2]} ${N[1]}까지 ${N[0] - p})</small>` : ''}<div class="bar"><i style="width:${pct}%"></i></div></div></div>`;
   const tt = r.todayD === new Date().toDateString() ? r.todayT : r.todayT;
-  const st = [['명상', fmtT(r.t.meditate)], ['기도', fmtT(r.t.pray)], ['책 읽기', fmtT(r.t.read || 0)], ['마법 연습', (r.n.spells || 0) + '번'], ['절한 시간', fmtT(r.t.bowTime)], ['성가대', fmtT(r.t.sing)], ['절', r.n.bows + '번'], ['108배', r.n.b108 + '번'], ['목탁', r.n.moktak + '번'], ['시주', r.n.donate + '번'], ['촛불·향', (r.n.candle + r.n.incense) + '번'], ['들른 날', r.days.length + '일'], ['연속', r.streak + '일 (최고 ' + r.best + ')'], ['오늘 명상', fmtT((tt && tt.meditate) || 0)]];
+  const st = [['명상', fmtT(r.t.meditate)], ['기도', fmtT(r.t.pray)], ['책 읽기', fmtT(r.t.read || 0)], ['마법 연습', (r.n.spells || 0) + '번'], ['점프', (r.n.jumps || 0) + '번 (2단 ' + (r.n.flash || 0) + ')'], ['절한 시간', fmtT(r.t.bowTime)], ['성가대', fmtT(r.t.sing)], ['절', r.n.bows + '번'], ['108배', r.n.b108 + '번'], ['목탁', r.n.moktak + '번'], ['시주', r.n.donate + '번'], ['촛불·향', (r.n.candle + r.n.incense) + '번'], ['들른 날', r.days.length + '일'], ['연속', r.streak + '일 (최고 ' + r.best + ')'], ['오늘 명상', fmtT((tt && tt.meditate) || 0)]];
   $('recStats').innerHTML = st.map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join('');
   $('recAch').innerHTML = ACH.map(a => {
     const got = r.got[a.id]; let pr = '';
@@ -961,7 +964,7 @@ $('baptGo').onclick = () => {
   try { localStorage.setItem('mw_name', nm); } catch (e) { }
   const sa = saintFor(nm), f = fortuneFor(nm), animal = ANIMALS.find(a => a.k === pickKey);
   const esc = t => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  $('baptOut').innerHTML = `<p>${esc(nm)} 님(${animal ? animal.n : ''})의 세례명은</p><div class="saint">${sa.name}</div><p>“${sa.meaning}”이라는 뜻을 담았어요.</p>
+  $('baptOut').innerHTML = `<p>${esc(nm)} 님(${animal ? animal.s : ''})의 세례명은</p><div class="saint">${sa.name}</div><p>“${sa.meaning}”이라는 뜻을 담았어요.</p>
     <div class="fort"><b>오늘의 운세</b> <span class="stars">${'★'.repeat(f.stars)}${'☆'.repeat(5 - f.stars)}</span> ${f.luck}<p>${f.text}</p>
     <p>행운의 색 <b style="color:${f.color[1]}">● ${f.color[0]}</b> · 행운의 물건 <b>${f.item}</b> · 행운의 숫자 <b>${f.number}</b></p>
     <p><i>${f.word}</i></p></div><p class="hint">같은 이름이면 세례명은 늘 같고, 운세는 날마다 바뀌어요. 재미로 즐겨 주세요.</p>
@@ -1052,6 +1055,53 @@ function separate(dt) {   // 동물끼리 겹치지 않게 살짝 밀어 냄 (�
   }
 }
 
+// ---------------------------------------------------------------- 점프 · 2단 점프
+// 땅에서 한 번 누르면 폴짝, 공중에서 한 번 더 누르면 바라보는 쪽으로 휙 날아가요 (빛 꼬리).
+const GRAV = 17, JUMP_V = 5.6, DASH_V = 8.5, DASH_T = 0.32;
+const dashCol = MAP.key === 'school' ? 0xA8D8FF : 0xFFB070;
+function jump() {
+  const p = player; if (!p || sitting || p.glide) return;
+  if (p.acting) { stopActing(); return; }
+  if (!p.air) {
+    p.air = true; p.vy = JUMP_V; p.jy = Math.max(0, p.jy || 0); p.flashed = false; p.dash = null;
+    p.play('Jump', 0.12); audio && audio.hop(); rec.add('jumps');
+  } else if (!p.flashed) {
+    p.flashed = true; p.vy = Math.max(p.vy, 0) + 2.2;
+    p.dash = { x: Math.sin(p.yaw), z: Math.cos(p.yaw), t: 0 };
+    audio && audio.whoosh(); rec.add('flash');
+    trail(p, 14);
+  }
+}
+function airStep(a, dt, gy) {
+  a.vy -= GRAV * dt; a.jy += a.vy * dt;
+  if (a.dash) {
+    const d = a.dash; d.t += dt; const k = 1 - d.t / DASH_T;
+    if (k <= 0) a.dash = null; else { a.step(d.x, d.z, DASH_V * (0.4 + 0.6 * k), dt); if (Math.random() < 0.6) trail(a, 1); }
+  }
+  if (a.jy <= 0 && a.vy < 0) {
+    a.jy = 0; a.air = false; a.dash = null;
+    a.play('Idle', 0.15); audio && audio.land(); puff(a.pos.x, a.pos.z);
+  }
+}
+function trail(a, n) {
+  for (let i = 0; i < n; i++) {
+    const m = sparkMat.clone(); m.color.setHex(dashCol);
+    const sp = new THREE.Sprite(m); sp.scale.setScalar(0.1 + Math.random() * 0.14);
+    sp.position.set(a.pos.x + (Math.random() - 0.5) * 0.5, a.pos.y + (a.jy || 0) + 0.3 + Math.random() * 0.8, a.pos.z + (Math.random() - 0.5) * 0.5); scene.add(sp);
+    sparkles.push({ sp, v: 0.05 + Math.random() * 0.2, life: 0.5 + Math.random() * 0.5, t: 0, wob: Math.random() * 6 });
+  }
+}
+function puff(x, z) {
+  const y = groundH(x, z);
+  for (let i = 0; i < 8; i++) {
+    const m = sparkMat.clone(); m.color.setHex(0xEDE3D2); m.opacity = 0.5;
+    const sp = new THREE.Sprite(m); sp.scale.setScalar(0.12 + Math.random() * 0.1);
+    const ang = i / 8 * Math.PI * 2; sp.position.set(x + Math.cos(ang) * 0.25, y + 0.08, z + Math.sin(ang) * 0.25); scene.add(sp);
+    sparkles.push({ sp, v: 0.08, life: 0.45, t: 0, wob: ang });
+  }
+}
+$('btnJump').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); jump(); });
+
 // ---------------------------------------------------------------- 루프
 const clock = new THREE.Clock(); let tAll = 0;
 const tmpV = new THREE.Vector3(), dirV = new THREE.Vector3(); const camRay = new THREE.Raycaster(); let keyStuck = 0, camTick = 0, camFree = 99, camCur = 7.5, wasIndoor = null, inK = 0;
@@ -1069,11 +1119,11 @@ function frame() {
       const fy = camState.yaw + Math.PI, fx = Math.sin(fy), fz = Math.cos(fy);
       let mx = fx * iz + fz * ix, mz = fz * iz - fx * ix; const l = Math.hypot(mx, mz); mx /= l; mz /= l;
       if (!player.step(mx, mz, sp, dt)) { keyStuck += dt; if (keyStuck > 1.2) { keyStuck = 0; unstick(player, 3); } } else keyStuck = 0;
-      player.turnTo(Math.atan2(mx, mz), dt, 10); player.play(sp > WALK ? 'Running_A' : 'Walking_A');
+      player.turnTo(Math.atan2(mx, mz), dt, player.air ? 5 : 10); if (!player.air) player.play(sp > WALK ? 'Running_A' : 'Walking_A');
     } else if (player.path) {
-      player.play('Walking_A');
+      if (!player.air) player.play('Walking_A');
       if (player.follow(dt, WALK)) { marker.visible = false; player.play('Idle'); if (pendingAction) { const f = pendingAction; pendingAction = null; f(); } }
-    } else if (!sitting && !player.acting && !player.glide && player.curName !== 'Idle' && !player.onFinish) player.play('Idle');
+    } else if (!sitting && !player.acting && !player.glide && !player.air && player.curName !== 'Idle' && !player.onFinish) player.play('Idle');
     player.update(dt);
     npcs.forEach(n => n.update(dt));
     separate(dt);
@@ -1123,4 +1173,4 @@ function frame() {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__dbg = { THREE_V: THREE.Vector3, applyTime, TIME, get bloom() { return BLOOM_ON; }, set bloom(v) { BLOOM_ON = v; }, get player() { return player; }, get npcs() { return npcs; }, startWalk, walkTo, POI, SPOTS, startAction, camState, nav, setPick: k => { pickKey = k; }, rec, groundH, say, nearSpot: () => nearSpot };
+window.__dbg = { THREE_V: THREE.Vector3, applyTime, TIME, get bloom() { return BLOOM_ON; }, set bloom(v) { BLOOM_ON = v; }, get player() { return player; }, get npcs() { return npcs; }, startWalk, walkTo, POI, SPOTS, startAction, camState, nav, setPick: k => { pickKey = k; }, rec, groundH, say, jump, nearSpot: () => nearSpot };

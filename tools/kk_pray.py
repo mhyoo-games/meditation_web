@@ -148,12 +148,21 @@ def moktak(t):     # 앉아서 왼손은 합장 반쪽, 오른손 채로 톡톡
             'upperarm.l': [(X, 0.5)]}
 
 
+READ_T = 6.0
+def read(t):       # 6초: 앉아서 책을 보며 고개를 살짝 숙이고, 4.6초쯤 오른손으로 책장을 넘김
+    turn = smooth((t - 4.4) / 0.4) * (1 - smooth((t - 5.2) / 0.5))
+    br = 0.015 * math.sin(TAU * t / 3.0)
+    return {'head': [(X, 0.32 + br), (Y, 0.1 * turn)], 'chest': [(X, 0.12)], 'spine': [(X, 0.05)],
+            'upperarm.l': [(X, 0.55)], 'upperarm.r': [(X, 0.55 + 0.25 * turn), (Z, -0.35 * turn)], 'lowerarm.r': [(X, 0.2 * turn)]}
+
+
 def main(src, dst):
     L = ks.G(src)
     compose(L, 'Pray_Stand', 'Idle', 4.0, arms=('Use_Item', 0.5), bend=lambda t: {'head': 0.28, 'chest': 0.06})
     compose(L, 'Pray_Sit', 'Sit_Chair_Idle', 4.0, arms=('Use_Item', 0.5), bend=lambda t: {'head': 0.3, 'chest': 0.08})
     compose_bow(L)
     compose_multi(L, 'Sing', 'Idle', 4.0, arms=('Use_Item', 0.5), fn=sing)
+    compose_multi(L, 'Read', 'Sit_Chair_Idle', READ_T, arms=('Use_Item', 0.5), fn=read)
     compose_multi(L, 'Moktak', 'Sit_Floor_Idle', MOK_T, arms=('Use_Item', 0.5), fn=moktak)
     keep = set(sys.argv[3].split(',')) if len(sys.argv) > 3 else None
     if keep: L.j['animations'] = [a for a in L.j['animations'] if a['name'] in keep]

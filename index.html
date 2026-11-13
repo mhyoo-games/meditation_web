@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>단풍마을 산책 — 마음 쉬어가기</title>
+<title>마음 산책 — 단풍마을 · 별빛 마법학교</title>
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 </head>
@@ -14,9 +14,11 @@
   <!-- 시작 화면 -->
   <section id="intro" class="panel">
     <div class="card">
-      <p class="eyebrow">마음 쉬어가는 산책</p>
-      <h1>단풍마을</h1>
-      <p class="lead">단풍이 물든 작은 마을을 천천히 걸어 보세요.<br>절에서는 목탁과 반야심경이, 교회에서는 찬송가와 캐럴이, 성당에서는 성가대의 노래가 흘러나와요.</p>
+      <p class="eyebrow">마음 산책 — 마음 쉬어가는 곳</p>
+      <h1 id="mapTitle">단풍마을</h1>
+      <p class="lead" id="mapLead"></p>
+      <h2>어디로 갈까요?</h2>
+      <div id="maps" class="maps" role="group" aria-label="맵 고르기"></div>
       <h2>함께 걸을 동물을 골라 주세요</h2>
       <div id="pick" class="pick" role="radiogroup" aria-label="동물 고르기"></div>
       <button id="start" class="primary" disabled>불러오는 중…</button>
@@ -36,12 +38,6 @@
       <label class="vol" title="소리 크기"><span aria-hidden="true">소리</span><input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="소리 크기"></label>
     </div>
     <div id="goMenu" class="menu" hidden>
-      <button data-go="temple">단풍사 (절)</button>
-      <button data-go="church">은행나무 교회</button>
-      <button data-go="cathedral">별빛 성당</button>
-      <button data-go="plaza">단풍 광장</button>
-      <button data-go="pond">연못</button>
-      <button data-go="home">우리 집</button>
       <hr>
       <button data-go="rescue" title="끼어서 못 움직일 때 가까운 빈자리로 옮겨요">🆘 끼임 탈출</button>
       <button data-go="reset" title="처음 화면으로 돌아가 동물을 다시 골라요">🔄 처음으로 (동물 다시 고르기)</button>
@@ -102,8 +98,8 @@
   <p id="actMsg" hidden></p>
   <div id="breath" hidden><div class="ring"></div><p id="breathText">숨을 들이쉬어요</p><p class="small">명상하기를 다시 누르면 일어나요</p></div>
 
-  <p id="help" hidden>WASD·방향키로 걷기 · 땅을 누르면 그곳으로 걸어가요 · 드래그(또는 Q·R, PageUp·PageDown)로 둘러보기 — 건물 안에서도 · 휠/두 손가락으로 확대 · 절·교회·성당 안에서 E 또는 아래 버튼으로 절하기·기도하기·목탁·시주·108배·성가대·세례 · 💬로 인사 · 🏅로 기록 보기</p>
-  <div id="loading" hidden><div class="bar"><i id="loadBar"></i></div><p id="loadText">마을을 불러오는 중…</p></div>
+  <p id="help" hidden>WASD·방향키로 걷기 · 땅을 누르면 그곳으로 걸어가요 · 드래그(또는 Q·R, PageUp·PageDown)로 둘러보기 — 건물 안에서도 · 휠/두 손가락으로 확대 · 장소마다 E 또는 아래 버튼으로 할 수 있는 일(절·기도·성가대·세례 / 책 읽기·마법 연습·별 보기 …) · 💬로 인사 · 🏅로 기록 보기</p>
+  <div id="loading" hidden><div class="bar"><i id="loadBar"></i></div><p id="loadText">불러오는 중…</p></div>
 </div>
 <script type="module" src="js/main.js"></script>
 </body>

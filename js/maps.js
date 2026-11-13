@@ -1,0 +1,91 @@
+// 맵 목록: 마음 산책 사이트 안의 여러 장소. 맵마다 배치 파일·건물·행동·소리 구역이 다름.
+export const MAPS = {
+  village: {
+    key: 'village', title: '단풍마을', icon: '🍁', time: 'dusk',
+    tagline: '단풍이 물든 작은 마을. 절에서는 목탁과 반야심경이, 교회에서는 찬송가와 캐럴이, 성당에서는 성가대의 노래가 흘러나와요.',
+    layout: '../assets/village/village_layout.js', world: 'assets/village/village.glb', splat: 'assets/tex/splat.png',
+    chars: 'assets/characters/', portraits: 'assets/portraits/', baseZone: 'village', zones: ['temple', 'church', 'cathedral'],
+    jobs: { hamster: '프로그래머', rabbit: '제빵사', cat: '바리스타', dog: '우체부', bear: '니트 스웨터', panda: '초록 셔츠', fox: '와인색 코트', raccoon: '푸른 셔츠', squirrel: '단풍색 셔츠', deer: '크림 니트', lion: '마을 경비대장' },
+    u: {},
+    poi: B => ({
+      temple: { p: [B.temple.door[0], B.temple.door[2]], name: '단풍사 (절)' },
+      church: { p: [B.church.door[0], B.church.door[2]], name: '은행나무 교회' },
+      cathedral: { p: [B.cathedral.door[0], B.cathedral.door[2]], name: '별빛 성당' },
+      plaza: { p: [0, 4.6], name: '단풍 광장' },
+      pond: { p: [-4.0, 11.6], name: '연못' },
+      home: { name: '우리 집', home: true },
+    }),
+    out: B => ({
+      church: [[B.church.door[0] + 1.2, B.church.door[2] - 1.5], [B.church.door[0] + 1.8, B.church.door[2] + 1.6]],
+      cathedral: [[B.cathedral.door[0] - 1.2, B.cathedral.door[2] - 2.0], [B.cathedral.door[0] - 1.8, B.cathedral.door[2] + 2.2]],
+      temple: [[B.temple.door[0] - 1.5, B.temple.door[2] + 1.0], [-4.5, -26.5], [-0.5, -27.5]],
+      plaza: [[2.6, 2.4], [-2.4, 2.6], [2.2, -2.6], [-2.8, -2.0], [0, -3.4]],
+      pond: [[-4.4, 11.2], [-5.2, 15.4], [-10.6, 13.6]],
+      walk: [[0, -9], [-9, 1.6], [10, 2.6], [0, 10], [-5, 6], [6, 7], [3, -6], [-3, -6], [-12, 5], [12, 6]],
+    }),
+    cheerPool: 'plaza',
+    npcKinds: ['temple_bow', 'temple_bow', 'church_pew', 'cathedral_pew', 'temple_incense', 'cathedral_candle', 'temple_moktak', 'temple_donate'],
+    zoneActs: {
+      temple: [['temple_bow'], ['temple_bow', 'b108'], ['temple_moktak'], ['temple_donate'], ['temple_incense']],
+      church: [['church_pew'], ['church_choir']],
+      cathedral: [['cathedral_pew'], ['cathedral_candle'], ['cathedral_baptism']],
+    },
+    roofKind: { temple_roof: 'temple_bow', church_roof: 'church_pew', cathedral_roof: 'cathedral_pew' },
+    clickTargets: ['temple', 'church', 'cathedral', 'plaza'],
+    names: { village: ['단풍마을', '천천히 걸어 보세요'], temple: ['단풍사', '목탁 소리와 반야심경'], church: ['은행나무 교회', '오르간 찬송가와 캐럴'], cathedral: ['별빛 성당', '성가대의 노래'] },
+  },
+  school: {
+    key: 'school', title: '별빛 마법학교', icon: '🔮', time: 'night',
+    tagline: '별이 쏟아지는 밤의 마법학교. 촛불이 떠 있는 대강당, 책이 날아다니는 도서관, 별을 보는 천문대를 거닐어요.',
+    layout: '../assets/school/school_layout.js', world: 'assets/school/school.glb', splat: 'assets/school/splat.png',
+    chars: 'assets/characters_pc/', portraits: 'assets/portraits_pc/', baseZone: 'school', zones: ['hall', 'library', 'tower'],
+    jobs: { hamster: '견습 마법사', rabbit: '물약 반', cat: '별자리 반', dog: '빗자루 반', bear: '약초 반', panda: '주문 반', fox: '여우불 반', raccoon: '마법 도구 반', squirrel: '도서관 도우미', deer: '숲의 마법 반', lion: '학생회장' },
+    u: {hamster: 2.8431, rabbit: 2.8941, cat: 2.758, dog: 2.8819, lion: 2.6559, bear: 2.8642, panda: 2.8642, fox: 2.7334, raccoon: 2.7875, squirrel: 2.9316, deer: 2.8802},
+    poi: B => ({
+      hall: { p: [B.hall.door[0], B.hall.door[2]], name: '대강당' },
+      library: { p: [B.library.door[0], B.library.door[2]], name: '도서관' },
+      stars: { p: [B.stars.door[0], B.stars.door[2]], name: '천문대' },
+      courtyard: { p: [B.courtyard.door[0], B.courtyard.door[2]], name: '안뜰 분수' },
+      lake: { p: [B.lake.door[0], B.lake.door[2]], name: '별빛 호수' },
+      home: { name: '내 벤치', home: true },
+    }),
+    out: B => ({
+      courtyard: [[3.0, 5.6], [-3.0, 5.6], [3.4, -1.6], [-3.4, -1.2], [0, 6.4]],
+      hall: [[-2.4, -4.8], [2.4, -4.8]], library: [[-8.2, -14.0], [-8.2, -18.0]],
+      lake: [[18.4, 12.2], [17.2, 14.6], [21.0, 1.6]], stars: [[13.8, 6.4]],
+      walk: [[0, 15], [0, 9], [-8, 3], [9, 6], [12, 9], [-6, -3], [6, -3], [-10, 6]],
+    }),
+    cheerPool: 'courtyard',
+    npcKinds: ['library_read', 'library_read', 'hall_sit', 'hall_sit', 'magic_cast', 'stars', 'library_shelf', 'hall_candle'],
+    zoneActs: {
+      hall: [['hall_sit'], ['hall_candle']],
+      library: [['library_read'], ['library_shelf']],
+      tower: [['stars']],
+      school: [['magic_cast']],
+    },
+    roofKind: { hall_roof: 'hall_sit', library_roof: 'library_read' },
+    clickTargets: ['castle'],
+    names: { school: ['별빛 마법학교', '별이 쏟아지는 밤'], hall: ['대강당', '떠 있는 촛불 아래'], library: ['도서관', '책장 넘기는 소리'], tower: ['천문대', '별을 바라보기'] },
+  },
+};
+export const MAP_ORDER = ['village', 'school'];
+
+// 도서관 책 (모두 이 사이트를 위해 새로 쓴 글)
+export const BOOK_TITLES = ['『구름을 접는 법』', '『고양이와 달의 약속』', '『잠 못 드는 별을 위한 자장가』', '『비 오는 날의 물약 101가지』', '『아주 작은 용 기르기』',
+  '『빗자루와 친해지는 일곱 날』', '『잊어버린 주문 사전』', '『바람의 이름을 부르는 법』', '『호박등 속의 작은 불』', '『숲이 들려주는 이야기』',
+  '『한 장씩 넘기는 마음』', '『찻잔 속 점괘 읽기 (재미로)』', '『밤하늘 지도 — 초급』', '『깃털 펜이 쓴 편지들』', '『조용한 마법의 역사』'];
+export const PASSAGES = [
+  '서두르지 않는 마법이 가장 오래 남는다. 촛불도, 마음도.',
+  '주문을 외우기 전에 숨을 한 번 깊게 쉬어라. 마법은 고요한 곳에서 자란다.',
+  '책장을 넘길 때마다 작은 바람이 분다. 그 바람에 걱정 하나를 실어 보내자.',
+  '별은 서로 멀리 있어도 같은 밤을 비춘다.',
+  '실수한 주문도 언젠가는 쓸모가 있다. 나비가 된 찻잔처럼.',
+  '오늘 배우지 못한 것은 내일의 즐거움으로 남겨 두어도 좋다.',
+  '가장 강한 보호 마법은 따뜻한 말 한마디다.',
+  '잠이 오지 않는 밤에는 천장의 별을 세어라. 셋쯤에서 꿈이 마중 나온다.',
+  '물약이 끓을 때 저어 주는 마음으로 하루를 대하자. 천천히, 시계 방향으로.',
+  '도서관의 책들은 읽어 주는 이를 기다리며 조용히 반짝인다.',
+  '바람이 차가운 날엔 망토를 여미고, 마음이 차가운 날엔 친구를 찾아라.',
+  '빛은 어둠을 이기려 하지 않는다. 그저 조용히 곁에 있을 뿐.',
+];
+export const STARS = ['작은 부엉이자리', '찻주전자 별무리', '잠꾸러기 고양이자리', '은빛 빗자루자리', '두 꼬리 여우별', '물방울 왕관자리', '길 잃은 양초별', '책벌레 성운'];

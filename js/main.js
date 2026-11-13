@@ -1,4 +1,4 @@
-// 단풍마을 산책 — three.js
+// 마음 산책 — three.js (맵: 단풍마을 · 별빛 마법학교)
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -8,24 +8,18 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { createRecords, LEVELS, ACH, REWARDS } from './records.js';
 import { saintFor, fortuneFor } from './blessing.js';
-import LAYOUT from '../assets/village/village_layout.js';
+import { MAPS, MAP_ORDER, BOOK_TITLES, PASSAGES, STARS } from './maps.js';
 import { createAudio, HEART_SUTRA } from './audio.js';
+const MAPKEY = (() => { const q = new URLSearchParams(location.search).get('map'); if (MAPS[q]) return q; try { const s = localStorage.getItem('mw_map'); if (MAPS[s]) return s; } catch (e) { } return 'village'; })();
+const MAP = MAPS[MAPKEY];
+const LAYOUT = (await import(MAP.layout)).default;
 import { createNav } from './nav.js';
 
 // ---------------------------------------------------------------- 동물
 const ANIMALS = [
-  { k: 'hamster', n: '햄스터', u: 3.017, job: '프로그래머' },
-  { k: 'rabbit', n: '토끼', u: 3.069, job: '제빵사' },
-  { k: 'cat', n: '고양이', u: 2.756, job: '바리스타' },
-  { k: 'dog', n: '강아지', u: 3.058, job: '우체부' },
-  { k: 'bear', n: '곰', u: 3.044, job: '니트 스웨터' },
-  { k: 'panda', n: '판다', u: 3.047, job: '초록 셔츠' },
-  { k: 'fox', n: '여우', u: 2.721, job: '와인색 코트' },
-  { k: 'raccoon', n: '너구리', u: 2.964, job: '푸른 셔츠' },
-  { k: 'squirrel', n: '다람쥐', u: 3.113, job: '단풍색 셔츠' },
-  { k: 'deer', n: '사슴', u: 2.866, job: '크림 니트' },
-  { k: 'lion', n: '사자', u: 2.84, job: '마을 경비대장' },
-];
+  ['hamster', '햄스터', 3.017], ['rabbit', '토끼', 3.069], ['cat', '고양이', 2.756], ['dog', '강아지', 3.058], ['bear', '곰', 3.044], ['panda', '판다', 3.047],
+  ['fox', '여우', 2.721], ['raccoon', '너구리', 2.964], ['squirrel', '다람쥐', 3.113], ['deer', '사슴', 2.866], ['lion', '사자', 2.84],
+].map(([k, n, u]) => ({ k, n, u: MAP.u[k] || u, job: MAP.jobs[k] }));
 const CH_SCALE = 1.25;
 const WALK = 1.6, RUN = 2.7;
 
@@ -83,7 +77,7 @@ addEventListener('resize', resize); resize();
 // 낮 · 노을 · 밤
 const glowMats = [];   // 등불·연등·창 (밤에 더 밝게)
 const TIME = {
-  cur: 'dusk',
+  cur: MAP.time,
   day: { sky: 'day', fog: 0xF4D8BC, fogN: 45, fogF: 160, hemi: [0xFFF1DD, 0x8E7050, 1.3], sun: [0xFFE2B8, 2.2], pos: [-30, 42, 24], fill: 0.45, lamp: 0, glow: 1.0, bloom: 0.25, exp: 1.0 },
   dusk: { sky: 'dusk', tint: 0xFFB27A, fog: 0xD99A78, fogN: 30, fogF: 130, hemi: [0xFFD2B0, 0x6A4A50, 1.15], sun: [0xFFA060, 1.9], pos: [-44, 18, 10], fill: 0.45, lamp: 1.8, glow: 1.25, bloom: 0.5, exp: 1.05 },
   night: { sky: 'night', fog: 0x1C2440, fogN: 22, fogF: 110, hemi: [0x5468A8, 0x1A1424, 0.55], sun: [0x9CB4FF, 0.55], pos: [30, 40, -20], fill: 0.12, lamp: 3.2, glow: 1.25, bloom: 0.8, exp: 1.05 },
@@ -95,10 +89,22 @@ function applyTime(k) {
   hemi.color.set(T.hemi[0]); hemi.groundColor.set(T.hemi[1]); hemi.intensity = T.hemi[2];
   sun.color.set(T.sun[0]); sun.intensity = T.sun[1]; sun.userData.off = T.pos; fill.intensity = T.fill;
   glowMats.forEach(m => m.color.setScalar(T.glow)); bloom.strength = T.bloom; renderer.toneMappingExposure = T.exp;
+  if (MAP.key === 'school') { if (!moon) moon = makeMoon(); moon.visible = k !== 'day'; moon.material.opacity = k === 'night' ? 1 : 0.55; }
   TIME.lamp = T.lamp; if (mountains) mountains.material.color.set(k === 'night' ? 0x2A3350 : k === 'dusk' ? 0x8A5A5E : 0x9AA8A0);
   const b = document.getElementById('btnTime'); if (b) b.textContent = { day: '☀️ 낮', dusk: '🌇 노을', night: '🌙 밤' }[k];
 }
 sun.userData.off = TIME.dusk.pos;
+
+// 마법학교의 큰 달 (밤·노을)
+let moon = null;
+function makeMoon() {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  const r = g.createRadialGradient(128, 128, 40, 128, 128, 128); r.addColorStop(0, 'rgba(255,250,230,1)'); r.addColorStop(0.36, 'rgba(255,246,220,1)'); r.addColorStop(0.42, 'rgba(255,240,200,0.35)'); r.addColorStop(1, 'rgba(255,230,180,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 256, 256);
+  g.fillStyle = 'rgba(220,210,190,0.35)'; [[110, 105, 12], [150, 140, 9], [120, 155, 7], [148, 100, 6]].forEach(([x, y, rr]) => { g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); });
+  const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, fog: false }));
+  m.scale.setScalar(46); m.position.set(-70, 62, -120); m.renderOrder = -1; scene.add(m); return m;
+}
 
 // 먼 산 (안개 속으로 겹겹이)
 let mountains = null;
@@ -161,13 +167,7 @@ function insideRect(r, x, z, m = 0) { const [lx, lz] = local(r, x, z); return Ma
 
 // ---------------------------------------------------------------- 장소·행동 자리
 const BLD = LAYOUT.buildings, Z = LAYOUT.zones, ACT = LAYOUT.actions;
-const POI = {
-  temple: { p: [BLD.temple.door[0], BLD.temple.door[2]], name: '단풍사 (절)' },
-  church: { p: [BLD.church.door[0], BLD.church.door[2]], name: '은행나무 교회' },
-  cathedral: { p: [BLD.cathedral.door[0], BLD.cathedral.door[2]], name: '별빛 성당' },
-  plaza: { p: [0, 4.6], name: '단풍 광장' },
-  pond: { p: [-4.0, 11.6], name: '연못' },
-};
+const POI = MAP.poi(BLD);
 const ACTION_INFO = {
   temple_bow: { label: '🙇 절하기', enter: 'Sit_Floor_Down', loop: 'Bow', exit: 'Sit_Floor_StandUp', msg: '부처님께 천천히 절을 올려요.', rec: 'bowTime',
     modes: { b108: { label: '📿 108배', loop: 'Bow', speed: 1.55, msg: '108배를 시작해요. 천천히, 숨과 함께.' } } },
@@ -178,18 +178,19 @@ const ACTION_INFO = {
   cathedral_baptism: { label: '💧 세례 받기', enter: 'Interact', loop: 'Pray_Stand', exit: null, msg: '맑은 물로 축복을 받아요.', rec: 'pray' },
   church_pew: { label: '🙏 앉아서 기도하기', enter: 'Sit_Chair_Down', loop: 'Pray_Sit', exit: 'Sit_Chair_StandUp', msg: '두 손을 모아 기도해요.', rec: 'pray' },
   cathedral_pew: { label: '🙏 앉아서 기도하기', enter: 'Sit_Chair_Down', loop: 'Pray_Sit', exit: 'Sit_Chair_StandUp', msg: '두 손을 모아 기도해요.', rec: 'pray' },
+  // 별빛 마법학교
+  hall_sit: { label: '🍲 식탁에 앉기', enter: 'Sit_Chair_Down', loop: 'Sit_Chair_Idle', exit: 'Sit_Chair_StandUp', msg: '떠 있는 촛불 아래, 따뜻한 호박 수프 냄새가 나요.', rec: 'meditate' },
+  hall_candle: { label: '🕯️ 촛불 띄우기', count: 'candle', enter: 'Interact', loop: 'Pray_Stand', exit: null, msg: '작은 촛불이 천천히 떠올라 다른 촛불들과 함께 빛나요.', rec: 'pray' },
+  library_read: { label: '📖 책 읽기', enter: 'Sit_Chair_Down', loop: 'Read', exit: 'Sit_Chair_StandUp', msg: '', rec: 'read' },
+  library_shelf: { label: '📚 책 고르기', count: 'books', enter: 'Interact', loop: 'Idle', exit: null, msg: '', rec: 'read' },
+  magic_cast: { label: '✨ 마법 연습', count: 'spells', enter: null, loop: 'Spellcasting', exit: null, msg: '마법진 위에서 주문을 외워요. 빛 방울이 피어올라요.', rec: 'magic' },
+  stars: { label: '🔭 별 보기', enter: 'Interact', loop: 'Idle', exit: null, msg: '', rec: 'stars' },
   cathedral_candle: { label: '🕯️ 촛불 켜기', count: 'candle', rec: 'pray', enter: 'Interact', loop: 'Pray_Stand', exit: null, msg: '작은 초에 불을 밝혔어요.' },
 };
 const SPOTS = [];
 for (const [kind, list] of Object.entries(ACT)) for (const [x, z, yaw] of list) SPOTS.push({ kind, x, z, yaw, taken: null });
-const OUT = {
-  church: [[BLD.church.door[0] + 1.2, BLD.church.door[2] - 1.5], [BLD.church.door[0] + 1.8, BLD.church.door[2] + 1.6]],
-  cathedral: [[BLD.cathedral.door[0] - 1.2, BLD.cathedral.door[2] - 2.0], [BLD.cathedral.door[0] - 1.8, BLD.cathedral.door[2] + 2.2]],
-  temple: [[BLD.temple.door[0] - 1.5, BLD.temple.door[2] + 1.0], [-4.5, -26.5], [-0.5, -27.5]],
-  plaza: [[2.6, 2.4], [-2.4, 2.6], [2.2, -2.6], [-2.8, -2.0], [0, -3.4]],
-  pond: [[-4.4, 11.2], [-5.2, 15.4], [-10.6, 13.6]],
-  walk: [[0, -9], [-9, 1.6], [10, 2.6], [0, 10], [-5, 6], [6, 7], [3, -6], [-3, -6], [-12, 5], [12, 6]],
-};
+const OUT = MAP.out(BLD);
+const SPAWN = LAYOUT.spawn.plaza;
 
 // ---------------------------------------------------------------- 캐릭터
 let ANIMS = [];
@@ -259,7 +260,27 @@ class Actor {
     else this.stuck = Math.max(0, this.stuck - dt);
     return false;
   }
+  hold(type) {   // 손에 드는 소품 (책·지팡이)
+    this.unhold();
+    const bone = (this.root.getObjectByName(type === 'book' ? 'handslotl' : 'handslotr') || this.root.getObjectByName(type === 'book' ? 'handslot.l' : 'handslot.r')); if (!bone) return;
+    const g = new THREE.Group();
+    if (type === 'book') {
+      const cover = new THREE.MeshToonMaterial({ color: [0x7A2E2E, 0x2E4E7A, 0x3A6A3A, 0x5A3A6A][Math.floor(Math.random() * 4)], gradientMap: grad }), page = new THREE.MeshToonMaterial({ color: 0xF4ECD8, gradientMap: grad });
+      for (const s of [-1, 1]) {
+        const c = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.46), cover); c.position.set(s * 0.17, 0, 0); c.rotation.z = -s * 0.18; g.add(c);
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.31, 0.05, 0.42), page); p.position.set(s * 0.16, 0.03, 0); p.rotation.z = -s * 0.18; g.add(p);
+      }
+      g.position.set(0.25, 0.1, 0.15); g.rotation.set(-1.0, 0, 0.3);
+    } else {
+      const w = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.04, 0.9, 6), new THREE.MeshToonMaterial({ color: 0x5A3A22, gradientMap: grad })); w.position.y = 0.35; g.add(w);
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), new THREE.MeshBasicMaterial({ color: 0xBFE4FF })); tip.position.y = 0.82; g.add(tip); glowMats.push(tip.material);
+      g.rotation.set(1.2, 0, 0);
+    }
+    bone.add(g); this.held = g;
+  }
+  unhold() { if (this.held) { this.held.parent && this.held.parent.remove(this.held); this.held = null; } }
   doAction(spot, onDone) {
+    if (spot.kind === 'library_read') this.hold('book'); else if (spot.kind === 'magic_cast') this.hold('wand');
     const A = ACTION_INFO[spot.kind]; this.acting = spot; this.mode = this.mode || null; this.path = null;
     const loopName = (this.mode && A.modes && A.modes[this.mode].loop) || A.loop;
     const loop = () => { if (this.acting !== spot) return; this.play(loopName, 0.6); const ts = this.mode && A.modes[this.mode].speed; if (ts && this.cur) this.cur.setEffectiveTimeScale(ts); };
@@ -271,6 +292,7 @@ class Actor {
     onDone && onDone(A);
   }
   endAction(after) {
+    this.unhold();
     const spot = this.acting; if (!spot) { after && after(); return; }
     const A = ACTION_INFO[spot.kind]; this.acting = null; if (spot.taken === this) spot.taken = null;
     this.mode = null; this.glide = null;
@@ -301,15 +323,15 @@ class Villager extends Actor {
   choose() {
     const r = Math.random(); let tgt = null; this.plan = null;
     if (r < 0.45) {
-      const kinds = ['temple_bow', 'temple_bow', 'church_pew', 'cathedral_pew', 'temple_incense', 'cathedral_candle', 'temple_moktak', 'temple_donate'];
+      const kinds = MAP.npcKinds;
       const kind = kinds[Math.floor(Math.random() * kinds.length)];
       const free = SPOTS.filter(s => s.kind === kind && !s.taken);
       if (free.length) { const s = free[Math.floor(Math.random() * free.length)]; s.taken = this; this.plan = s; tgt = [s.x, s.z]; }
     }
     if (!tgt) {
-      const pools = [OUT.plaza, OUT.pond, OUT.walk, OUT.church, OUT.cathedral, OUT.temple, [this.home]];
+      const pools = [...Object.values(OUT), [this.home]];
       const pool = pools[Math.floor(Math.random() * pools.length)]; const p = pool[Math.floor(Math.random() * pool.length)];
-      tgt = [p[0] + (Math.random() - 0.5) * 0.8, p[1] + (Math.random() - 0.5) * 0.8]; this.cheer = pool === OUT.plaza && Math.random() < 0.4;
+      tgt = [p[0] + (Math.random() - 0.5) * 0.8, p[1] + (Math.random() - 0.5) * 0.8]; this.cheer = pool === OUT[MAP.cheerPool] && Math.random() < 0.4;
     }
     if (this.goTo(tgt[0], tgt[1])) this.state = 'walk';
     else { if (this.plan) this.plan.taken = null; this.plan = null; this.state = 'idle'; this.t = 2; }
@@ -330,6 +352,27 @@ class Villager extends Actor {
 }
 
 // ---------------------------------------------------------------- 낙엽·향 연기·촛불
+function makeMotes(n = 260) {   // 마법학교: 천천히 떠오르는 빛 먼지·반딧불
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g2 = cv.getContext('2d');
+  const gr = g2.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.3, 'rgba(255,240,200,0.8)'); gr.addColorStop(1, 'rgba(255,220,150,0)');
+  g2.fillStyle = gr; g2.fillRect(0, 0, 64, 64);
+  const geo = new THREE.BufferGeometry(), pos = new Float32Array(n * 3), col = new Float32Array(n * 3), L = [];
+  const pal = [new THREE.Color('#FFE6A0'), new THREE.Color('#A8D8FF'), new THREE.Color('#E0B8FF'), new THREE.Color('#B8FFD0')];
+  for (let i = 0; i < n; i++) { L.push({ x: (Math.random() - 0.5) * 40, y: Math.random() * 8, z: (Math.random() - 0.5) * 40, v: 0.08 + Math.random() * 0.2, w: Math.random() * 6 }); const c = pal[i % 4]; col.set([c.r, c.g, c.b], i * 3); }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.16, map: new THREE.CanvasTexture(cv), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  pts.frustumCulled = false; scene.add(pts);
+  return (dt, cx, cz, t) => {
+    for (let i = 0; i < n; i++) {
+      const l = L[i]; l.y += l.v * dt;
+      if (l.y > 9) { l.y = 0.2; l.x = (Math.random() - 0.5) * 40; l.z = (Math.random() - 0.5) * 40; }
+      const gx = cx + l.x + Math.sin(t * 0.4 + l.w) * 0.7, gz = cz + l.z + Math.cos(t * 0.35 + l.w) * 0.7;
+      pos[i * 3] = gx; pos[i * 3 + 1] = groundH(gx, gz) + l.y + Math.sin(t * 1.7 + l.w) * 0.1; pos[i * 3 + 2] = gz;
+    }
+    geo.attributes.position.needsUpdate = true;
+    pts.material.opacity = 0.6 + 0.4 * Math.sin(t * 0.9);
+  };
+}
 function makeLeaves(n = 420) {
   const g = new THREE.PlaneGeometry(0.13, 0.09);
   const mesh = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), n); mesh.frustumCulled = false;
@@ -380,7 +423,7 @@ let pickKey = 'hamster';
 const pick = $('pick');
 ANIMALS.forEach(a => {
   const b = document.createElement('button'); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(a.k === pickKey)); b.dataset.k = a.k;
-  b.innerHTML = `<img src="${asset(`assets/portraits/${a.k}.png`)}" alt="" width="96" height="120">${a.n}<small>${a.job}</small>`;
+  b.innerHTML = `<img src="${asset(`${MAP.portraits}${a.k}.png`)}" alt="" width="96" height="120">${a.n}<small>${a.job}</small>`;
   b.onclick = () => { pickKey = a.k; pick.querySelectorAll('button').forEach(x => x.setAttribute('aria-checked', String(x.dataset.k === pickKey))); };
   pick.appendChild(b);
 });
@@ -393,7 +436,7 @@ function makeTerrain() {
   const pos = g.attributes.position;
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) pos.setY(j * n + i, HM.h[j * n + i]);
   g.computeVertexNormals();
-  const splat = texL.load(asset('assets/tex/splat.png')); splat.colorSpace = THREE.NoColorSpace; splat.flipY = false;
+  const splat = texL.load(asset(MAP.splat)); splat.colorSpace = THREE.NoColorSpace; splat.flipY = false;
   const U = { tDirt: { value: texRepeat('assets/tex/dirt.jpg') }, tStone: { value: texRepeat('assets/tex/stone.jpg') }, tSplat: { value: splat }, uSize: { value: S } };
   const m = new THREE.MeshLambertMaterial({ color: 0xffffff });
   m.onBeforeCompile = sh => {
@@ -487,7 +530,7 @@ function placeProps(gltf) {
 // ---------------------------------------------------------------- 불러오기
 const models = {}; let villageRoot = null, terrainMesh = null, propsRoot = null; const roofs = {}; let ready = null;
 async function loadAll(progress) {
-  const jobs = [['village', 'assets/village/village.glb'], ['props', 'assets/props.glb'], ['anims', 'assets/animations/kaykit_animations.glb'], ...ANIMALS.map(a => [a.k, `assets/characters/${a.k}.glb`])];
+  const jobs = [['village', MAP.world], ['props', 'assets/props.glb'], ['anims', 'assets/animations/kaykit_animations.glb'], ...ANIMALS.map(a => [a.k, `${MAP.chars}${a.k}.glb`])];
   let done = 0;
   await Promise.all(jobs.map(async ([k, p]) => { models[k] = await parse(await bin(p)); done++; progress(done / jobs.length); }));
   ANIMS = models.anims.animations;
@@ -518,17 +561,18 @@ marker.rotation.x = -Math.PI / 2; marker.visible = false; scene.add(marker);
 
 async function startWalk() {
   await ready; if (started) return; started = true;
-  if (!audio) { audio = createAudio(); audio.start(); } audio.setVolume(parseFloat($('vol').value));
+  if (!audio) { audio = createAudio(MAP.key); audio.start(); } audio.setVolume(parseFloat($('vol').value));
   for (const a of ANIMALS) {
     const m = prepModel(models[a.k]);
     if (a.k === pickKey) { player = new Actor(a, m); const s = LAYOUT.spawn.plaza; player.place(s[0], s[2] + 0.6, Math.PI); }
     else { const v = new Villager(a, m, [LAYOUT.homes[a.k][0], LAYOUT.homes[a.k][2]]); const sp = OUT.walk[npcs.length % OUT.walk.length]; v.place(sp[0] + Math.random(), sp[1] + Math.random(), Math.random() * 6.28); npcs.push(v); }
   }
-  if (!leaves) leaves = makeLeaves(); camState.tgt.copy(player.pos); applyTime(TIME.cur);
+  if (!leaves) leaves = MAP.key === 'school' ? makeMotes() : makeLeaves(); camState.tgt.copy(player.pos); applyTime(TIME.cur);
   $('intro').hidden = true; $('hud').hidden = false; $('help').hidden = false;
   setTimeout(() => { $('help').hidden = true; }, 15000);
   hookAudioText();
-  if (rec.visit()) { const r = rec.data; setTimeout(() => toast(r.days.length === 1 ? '🍁 단풍마을에 온 걸 환영해요' : `🍁 오늘도 와 주셨네요`, r.streak > 1 ? `${r.streak}일째 이어서 들렀어요` : '명상하고 기도하면 마음 점수가 쌓여요 (🏅)'), 1200); }
+  rec.zone(MAP.baseZone);
+  if (rec.visit()) { const r = rec.data; setTimeout(() => toast(r.days.length === 1 ? `${MAP.icon} ${MAP.title}에 온 걸 환영해요` : `${MAP.icon} 오늘도 와 주셨네요`, r.streak > 1 ? `${r.streak}일째 이어서 들렀어요` : '명상하고 기도하면 마음 점수가 쌓여요 (🏅)'), 1200); }
   if (TIME.cur === 'night') rec.add('night');
   updateBadge();
 }
@@ -557,7 +601,7 @@ canvas.addEventListener('pointerup', e => {
   if (!started || !down) return; const click = down.moved < 8 && performance.now() - down.t < 450; down = null;
   if (!click) return;
   ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, cam);
-  const targets = [terrainMesh, ...['temple', 'church', 'cathedral', 'plaza'].map(n => villageRoot.getObjectByName(n))].filter(Boolean);
+  const targets = [terrainMesh, ...MAP.clickTargets.map(n => villageRoot.getObjectByName(n))].filter(Boolean);
   if (!terrainMesh) return;
   const hit = ray.intersectObjects(targets, true).find(h => h.face && h.face.normal.y > 0.6);
   if (hit) walkTo(hit.point.x, hit.point.z);
@@ -570,12 +614,29 @@ function walkTo(x, z, then) {
   });
 }
 $('btnGo').onclick = () => { const m = $('goMenu'), h = $('hud').getBoundingClientRect(); m.style.top = ($('hud').querySelector('.tools').getBoundingClientRect().bottom - h.top + 6) + 'px'; m.hidden = !m.hidden; $('talkMenu').hidden = true; };
+// 가 보기 메뉴와 시작 화면의 맵 고르기 (맵마다 다름)
+{
+  const gm = $('goMenu'), tail = gm.querySelector('hr');
+  for (const [k, p] of Object.entries(POI)) { const b = document.createElement('button'); b.dataset.go = k; b.textContent = p.name; gm.insertBefore(b, tail); }
+  const mb = document.createElement('button'); mb.dataset.go = 'maps'; mb.textContent = '🗺️ 다른 곳으로 (맵 고르기)'; gm.append(mb);
+  const box = $('maps');
+  for (const k of MAP_ORDER) {
+    const m = MAPS[k], b = document.createElement('button'); b.className = 'mapCard' + (k === MAPKEY ? ' on' : ''); b.setAttribute('aria-pressed', k === MAPKEY);
+    b.innerHTML = `<span class="mi">${m.icon}</span><b>${m.title}</b>`;
+    b.onclick = () => { if (k === MAPKEY) return; try { localStorage.setItem('mw_map', k); } catch (e) { } const q = new URLSearchParams(location.search); q.set('map', k); location.search = q.toString(); };
+    box.append(b);
+  }
+  $('placeName').textContent = MAP.names[MAP.baseZone][0]; $('placeSub').textContent = MAP.names[MAP.baseZone][1];
+  $('mapTitle').textContent = MAP.title; $('mapLead').textContent = MAP.tagline; document.title = `${MAP.title} — 마음 산책`;
+  try { localStorage.setItem('mw_map', MAPKEY); } catch (e) { }
+}
 $('goMenu').addEventListener('click', e => {
   const b = e.target.closest('[data-go]'); if (!b || !player) return; $('goMenu').hidden = true;
   const k = b.dataset.go;
   if (k === 'rescue') { rescue(); return; }
+  if (k === 'maps') { resetToIntro(); $('maps').scrollIntoView({ block: 'center' }); return; }
   if (k === 'reset') { resetToIntro(); return; }
-  const p = k === 'home' ? [LAYOUT.homes[pickKey][0], LAYOUT.homes[pickKey][2]] : POI[k].p; walkTo(p[0], p[1]);
+  const p = POI[k] && POI[k].home ? [LAYOUT.homes[pickKey][0], LAYOUT.homes[pickKey][2]] : POI[k].p; walkTo(p[0], p[1]);
 });
 const ORDER = ['dusk', 'night', 'day'];
 $('btnTime').onclick = () => applyTime(ORDER[(ORDER.indexOf(TIME.cur) + 1) % 3]);
@@ -632,6 +693,12 @@ function startAction(spot, mode = null) {
     }
     if (spot.kind === 'temple_donate') setTimeout(() => { audio && audio.coin(); sparkle(spot.x, spot.z, 1.2); }, 700);
     if (spot.kind === 'church_choir') { audio && audio.setChurchChoir(true); summonChoir(); $('capText').textContent = '성가대가 오르간에 맞춰 함께 노래하고 있어요. 🎵'; }
+    if (spot.kind === 'library_read') setTimeout(() => { if (player && player.acting === spot) { const t = BOOK_TITLES[Math.floor(Math.random() * BOOK_TITLES.length)]; $('actMsg').textContent = `📖 ${t} — “${PASSAGES[Math.floor(Math.random() * PASSAGES.length)]}”`; } }, 1800);
+    if (spot.kind === 'library_read') player.onLoop = act => { if (act === player.acts.Read && Math.random() < 0.5) { $('actMsg').textContent = `📖 “${PASSAGES[Math.floor(Math.random() * PASSAGES.length)]}”`; audio && audio.page && audio.page(); } };
+    if (spot.kind === 'library_shelf') setTimeout(() => { if (player && player.acting === spot) { $('actMsg').textContent = `📚 ${BOOK_TITLES[Math.floor(Math.random() * BOOK_TITLES.length)]}을(를) 꺼냈어요. 표지가 살짝 반짝여요.`; audio && audio.page && audio.page(); sparkle(spot.x, spot.z, 1.8, 10); } }, 900);
+    if (spot.kind === 'stars') setTimeout(() => { if (player && player.acting === spot) { const st = STARS[Math.floor(Math.random() * STARS.length)]; $('actMsg').textContent = `🔭 오늘 밤엔 ‘${st}’가 또렷하게 보여요. (지어낸 별자리예요)`; audio && audio.chime(); rec.add('starsSeen'); } }, 1500);
+    if (spot.kind === 'hall_candle') setTimeout(() => { if (player && player.acting === spot) { floatCandle(spot.x, spot.z); audio && audio.chime(); } }, 900);
+    if (spot.kind === 'magic_cast') { castT = 0; }
     if (spot.kind === 'cathedral_baptism') setTimeout(() => { if (player && player.acting === spot) { audio && audio.bless(); sparkle(spot.x, spot.z, 1.6, 40); openBaptism(); } }, 1600);
   };
   if (Math.hypot(spot.x - player.pos.x, spot.z - player.pos.z) < 0.6) go();
@@ -643,11 +710,7 @@ $('btnAct').onclick = () => { if (!player) return; if (player.acting) { stopActi
 $('btnAlt').onclick = () => { if (!player || player.acting || !nearSpot) return; const A = ACTION_INFO[nearSpot.kind]; if (A.modes) startAction(nearSpot, Object.keys(A.modes)[0]); };
 function nearest(kind) { return SPOTS.filter(s => s.kind === kind && !s.taken).sort((a, b) => Math.hypot(a.x - player.pos.x, a.z - player.pos.z) - Math.hypot(b.x - player.pos.x, b.z - player.pos.z))[0] || null; }
 // 그 장소에서 할 수 있는 일 (멀리 있어도 누르면 그 자리로 걸어가서 시작)
-const ZONE_ACTS = {
-  temple: [['temple_bow'], ['temple_bow', 'b108'], ['temple_moktak'], ['temple_donate'], ['temple_incense']],
-  church: [['church_pew'], ['church_choir']],
-  cathedral: [['cathedral_pew'], ['cathedral_candle'], ['cathedral_baptism']],
-};
+const ZONE_ACTS = MAP.zoneActs;
 let moreKey = '';
 function setMore(list) {
   const key = list.map(x => x.join(':')).join('|'); if (key === moreKey) return; moreKey = key;
@@ -664,7 +727,7 @@ function updateActionButton() {
   if (!player || player.acting) return;
   let best = null, bd = 2.2;
   for (const s of SPOTS) { const d = Math.hypot(s.x - player.pos.x, s.z - player.pos.z); if (d < bd && !s.taken) { bd = d; best = s; } }
-  if (!best) for (const it of LAYOUT.interiors) if (insideRect(it, player.pos.x, player.pos.z)) best = nearest(it.roof === 'temple_roof' ? 'temple_bow' : it.roof === 'church_roof' ? 'church_pew' : 'cathedral_pew');
+  if (!best) for (const it of LAYOUT.interiors) if (insideRect(it, player.pos.x, player.pos.z)) best = MAP.roofKind[it.roof] ? nearest(MAP.roofKind[it.roof]) : null;
   nearSpot = best; const b = $('btnAct'), b2 = $('btnAlt');
   if (best) {
     const A = ACTION_INFO[best.kind]; b.hidden = false; b.textContent = A.label;
@@ -677,7 +740,7 @@ function updateActionButton() {
 }
 
 // ---------------------------------------------------------------- 자막
-let zoneNow = 'village', ttsOn = false, lastLine = -1;
+let zoneNow = MAP.baseZone, ttsOn = false, lastLine = -1;
 const LINE_START = []; { let k = 0; HEART_SUTRA.forEach((l, i) => { LINE_START[i] = k; k += l.length + 1; }); }
 const songTitle = {};
 function hookAudioText() {
@@ -690,18 +753,20 @@ function hookAudioText() {
   audio.listeners.song = (zone, title) => { if (zoneNow === zone) $('capTitle').textContent = '♪ ' + title; songTitle[zone] = title; };
 }
 $('tts').onchange = e => { ttsOn = e.target.checked; if (!ttsOn && 'speechSynthesis' in window) speechSynthesis.cancel(); };
-$('btnNext').onclick = () => audio && audio.nextSong(zoneNow);
+$('btnNext').onclick = () => audio && (MAP.key === 'school' ? audio.nextSchool(zoneNow) : audio.nextSong(zoneNow));
 $('btnBell').onclick = () => audio && audio.ring(zoneNow);
 function setZone(z) {
   if (z === zoneNow) return; zoneNow = z; if (started) rec.zone(z);
-  $('caption').hidden = z === 'village';
-  $('ttsWrap').hidden = z !== 'temple'; $('btnNext').hidden = !(z === 'church' || z === 'cathedral');
+  $('caption').hidden = z === MAP.baseZone;
+  $('ttsWrap').hidden = z !== 'temple'; $('btnNext').hidden = !(z === 'church' || z === 'cathedral' || (MAP.key === 'school' && z !== MAP.baseZone));
   if (z !== 'temple' && 'speechSynthesis' in window) speechSynthesis.cancel();
   if (z === 'temple') { $('capTitle').textContent = '마하반야바라밀다심경 · 목탁에 맞춰 독경하고 있어요'; $('capText').textContent = ''; lastLine = -1; }
   if (z === 'church') { $('capTitle').textContent = '♪ ' + (songTitle.church || '오르간 찬송가'); $('capText').textContent = '오르간이 찬송가와 크리스마스 캐럴을 연주하고 있어요.'; }
   if (z === 'cathedral') { $('capTitle').textContent = '♪ ' + (songTitle.cathedral || '성가대'); $('capText').textContent = '성가대가 노래하고, 종소리가 가끔 울려요.'; }
-  const names = { village: ['단풍마을', '천천히 걸어 보세요'], temple: ['단풍사', '목탁 소리와 반야심경'], church: ['은행나무 교회', '찬송가와 캐럴'], cathedral: ['별빛 성당', '성가대와 오르간'] };
-  $('placeName').textContent = names[z][0]; $('placeSub').textContent = names[z][1];
+  if (z === 'hall') { $('capTitle').textContent = '♪ ' + (songTitle.hall || '촛불 아래의 왈츠'); $('capText').textContent = '천장 위로 촛불이 떠 있고, 하프와 첼레스타가 조용히 연주해요.'; }
+  if (z === 'library') { $('capTitle').textContent = '♪ ' + (songTitle.library || '책장 사이의 꿈'); $('capText').textContent = '책장 넘기는 소리, 시계 소리, 멀리서 들려오는 은은한 선율.'; }
+  if (z === 'tower') { $('capTitle').textContent = '♪ ' + (songTitle.tower || '별의 노래'); $('capText').textContent = '망원경으로 별자리를 찾아보세요.'; }
+  const nm = MAP.names[z] || MAP.names[MAP.baseZone]; $('placeName').textContent = nm[0]; $('placeSub').textContent = nm[1];
 }
 
 // ---------------------------------------------------------------- 끼임 탈출 · 처음으로
@@ -709,7 +774,7 @@ function freeSpotNear(x, z, maxR = 8) {   // 가까운 빈자리를 나선형으
   if (!blockedR(x, z, RAD + 0.1)) return [x, z];
   for (let r = 0.3; r <= maxR; r += 0.3) {
     const n = Math.ceil(r * 8);
-    for (let k = 0; k < n; k++) { const a = k / n * Math.PI * 2, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; if (!blockedR(px, pz, RAD + 0.1) && nav.find(px, pz, 0, 4.6)) return [px, pz]; }
+    for (let k = 0; k < n; k++) { const a = k / n * Math.PI * 2, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; if (!blockedR(px, pz, RAD + 0.1) && nav.find(px, pz, SPAWN[0], SPAWN[2])) return [px, pz]; }
   }
   return null;
 }
@@ -726,7 +791,7 @@ function rescue() {   // 버튼: 지금 자리에서 가장 가까운 빈자리�
     let p = freeSpotNear(player.pos.x, player.pos.z, 6);
     if (p && Math.hypot(p[0] - player.pos.x, p[1] - player.pos.z) < 0.05) {   // 막힌 곳은 아닌데 갇혀 있으면: 둘레에서 광장까지 길이 있는 곳으로
       p = null;
-      for (let r = 0.6; r <= 6 && !p; r += 0.4) for (let k = 0; k < 16 && !p; k++) { const a = k / 16 * Math.PI * 2, x = player.pos.x + Math.cos(a) * r, z = player.pos.z + Math.sin(a) * r; if (!blockedR(x, z, RAD + 0.1)) { const q = nav.find(x, z, 0, 4.6); if (q) p = [x, z]; } }
+      for (let r = 0.6; r <= 6 && !p; r += 0.4) for (let k = 0; k < 16 && !p; k++) { const a = k / 16 * Math.PI * 2, x = player.pos.x + Math.cos(a) * r, z = player.pos.z + Math.sin(a) * r; if (!blockedR(x, z, RAD + 0.1)) { const q = nav.find(x, z, SPAWN[0], SPAWN[2]); if (q) p = [x, z]; } }
     }
     if (!p) { const s = LAYOUT.spawn.plaza; p = [s[0], s[2] + 0.6]; }
     player.place(p[0], p[1]); camState.tgt.set(player.pos.x, player.pos.y + 0.7, player.pos.z);
@@ -741,7 +806,7 @@ function resetToIntro() {   // 처음 화면(동물 고르기)으로
   player = null; npcs = []; pendingAction = null; nearSpot = null; marker.visible = false; wasIndoor = null;
   for (const r of Object.values(roofs)) if (r) r.visible = true;
   if ('speechSynthesis' in window) speechSynthesis.cancel();
-  audio && audio.setLevels({ village: 1, temple: 0, church: 0, cathedral: 0 }); setZone('village');
+  audio && audio.setLevels(Object.fromEntries([[MAP.baseZone, 1], ...MAP.zones.map(z => [z, 0])])); setZone(MAP.baseZone);
   ['hud', 'caption', 'actMsg', 'help', 'goMenu', 'btnAct', 'actBar', 'talkMenu', 'recPanel', 'baptPanel'].forEach(id => { $(id).hidden = true; });
   audio && audio.setChurchChoir(false); bubbles.splice(0).forEach(b => b.el.remove()); rec.save();
   $('intro').hidden = false; started = false;
@@ -767,7 +832,7 @@ function renderRecords() {
   const pct = N ? Math.round((p - L[0]) / (N[0] - L[0]) * 100) : 100;
   $('recLevel').innerHTML = `<div class="lvl"><span class="ic">${L[2]}</span><div style="flex:1"><b>${L[1]}</b> · 마음 점수 ${p}${N ? ` <small>(다음 ${N[2]} ${N[1]}까지 ${N[0] - p})</small>` : ''}<div class="bar"><i style="width:${pct}%"></i></div></div></div>`;
   const tt = r.todayD === new Date().toDateString() ? r.todayT : r.todayT;
-  const st = [['명상', fmtT(r.t.meditate)], ['기도', fmtT(r.t.pray)], ['절한 시간', fmtT(r.t.bowTime)], ['성가대', fmtT(r.t.sing)], ['절', r.n.bows + '번'], ['108배', r.n.b108 + '번'], ['목탁', r.n.moktak + '번'], ['시주', r.n.donate + '번'], ['촛불·향', (r.n.candle + r.n.incense) + '번'], ['들른 날', r.days.length + '일'], ['연속', r.streak + '일 (최고 ' + r.best + ')'], ['오늘 명상', fmtT((tt && tt.meditate) || 0)]];
+  const st = [['명상', fmtT(r.t.meditate)], ['기도', fmtT(r.t.pray)], ['책 읽기', fmtT(r.t.read || 0)], ['마법 연습', (r.n.spells || 0) + '번'], ['절한 시간', fmtT(r.t.bowTime)], ['성가대', fmtT(r.t.sing)], ['절', r.n.bows + '번'], ['108배', r.n.b108 + '번'], ['목탁', r.n.moktak + '번'], ['시주', r.n.donate + '번'], ['촛불·향', (r.n.candle + r.n.incense) + '번'], ['들른 날', r.days.length + '일'], ['연속', r.streak + '일 (최고 ' + r.best + ')'], ['오늘 명상', fmtT((tt && tt.meditate) || 0)]];
   $('recStats').innerHTML = st.map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join('');
   $('recAch').innerHTML = ACH.map(a => {
     const got = r.got[a.id]; let pr = '';
@@ -782,9 +847,33 @@ document.querySelectorAll('.sheet').forEach(sh => sh.addEventListener('click', e
 addEventListener('beforeunload', () => rec.save());
 addEventListener('visibilitychange', () => { if (document.hidden) rec.save(); });
 
+// 마법학교: 촛불 띄우기, 마법 연습 빛 방울
+const floaters = [];
+function floatCandle(x, z) {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.28, 8), new THREE.MeshToonMaterial({ color: 0xF6EFD8 })));
+  const fl = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), new THREE.MeshBasicMaterial({ color: 0xFFD08A })); fl.scale.set(1, 1.8, 1); fl.position.y = 0.2; g.add(fl);
+  g.position.set(x, groundH(x, z) + 1.2, z); scene.add(g); floaters.push({ g, t: 0, top: 5.6 + Math.random() * 1.6, x0: x, z0: z, w: Math.random() * 6 });
+}
+let castT = 0;
+function updateMagic(dt, t) {
+  for (const f of floaters) { f.t += dt; const k = Math.min(1, f.t / 8); f.g.position.y += ((f.top - f.g.position.y) * 0.4) * dt; f.g.position.x = f.x0 + Math.sin(t * 0.3 + f.w) * 0.6 * k; f.g.position.z = f.z0 - k * 2 + Math.cos(t * 0.25 + f.w) * 0.6 * k; }
+  if (player && player.acting && player.acting.kind === 'magic_cast') {
+    castT += dt;
+    if (Math.random() < dt * 14) {
+      const a = player.yaw, hx = player.pos.x + Math.sin(a) * 0.5, hz = player.pos.z + Math.cos(a) * 0.5;
+      const sp = new THREE.Sprite(sparkMat.clone()); sp.material.color.setHSL(Math.random(), 0.7, 0.75); sp.scale.setScalar(0.08 + Math.random() * 0.1);
+      sp.position.set(hx + (Math.random() - 0.5) * 0.3, player.pos.y + 1.0 + Math.random() * 0.3, hz + (Math.random() - 0.5) * 0.3); scene.add(sp);
+      sparkles.push({ sp, v: 0.6 + Math.random() * 0.9, life: 1.6 + Math.random(), t: 0, wob: Math.random() * 6 });
+    }
+    if (castT > 6) { castT = 0; rec.add('spells'); audio && audio.chime(); }
+  }
+}
+
 // 반짝이 (시주·세례·업적)
 const sparkles = [];
-const sparkMat = new THREE.SpriteMaterial({ color: 0xFFE7A0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+const glowDot = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.35, 'rgba(255,255,255,0.7)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+const sparkMat = new THREE.SpriteMaterial({ map: glowDot, color: 0xFFE7A0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
 function sparkle(x, z, h = 1.2, n = 24) {
   const y = groundH(x, z);
   for (let i = 0; i < n; i++) {
@@ -803,7 +892,7 @@ function updateSparkles(dt) {
 // 단계 보상: 빛 방울(2) · 반딧불(3) · 꽃잎(5) · 빛 고리(7)
 const aura = (() => {
   const n = 14, g = new THREE.Group(), dots = [];
-  for (let i = 0; i < n; i++) { const m = new THREE.Sprite(new THREE.SpriteMaterial({ color: i % 3 ? 0xFFE08A : 0xB8FFB0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })); m.scale.setScalar(0.07); g.add(m); dots.push({ m, a: Math.random() * 6.28, r: 0.5 + Math.random() * 0.6, h: 0.3 + Math.random() * 1.3, s: 0.3 + Math.random() * 0.5 }); }
+  for (let i = 0; i < n; i++) { const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowDot, color: i % 3 ? 0xFFE08A : 0xB8FFB0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })); m.scale.setScalar(0.07); g.add(m); dots.push({ m, a: Math.random() * 6.28, r: 0.5 + Math.random() * 0.6, h: 0.3 + Math.random() * 1.3, s: 0.3 + Math.random() * 0.5 }); }
   const halo = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.025, 8, 32), new THREE.MeshBasicMaterial({ color: 0xFFE7A0, transparent: true, opacity: 0.85, fog: false }));
   halo.rotation.x = Math.PI / 2; g.add(halo); scene.add(g);
   const petals = [];
@@ -998,7 +1087,7 @@ function frame() {
     const cp = Math.cos(pitch);
     dirV.set(Math.sin(camState.yaw) * cp, Math.sin(pitch), Math.cos(camState.yaw) * cp);
     inK += ((indoor ? 1 : 0) - inK) * Math.min(1, dt * 2);
-    hemi.intensity = TIME[TIME.cur].hemi[2] * (1 + inK * (TIME.cur === 'night' ? 1.4 : TIME.cur === 'dusk' ? 0.5 : 0.15));
+    hemi.intensity = TIME[TIME.cur].hemi[2] * (1 + inK * (TIME.cur === 'night' ? (MAP.key === 'school' ? 2.2 : 1.4) : TIME.cur === 'dusk' ? 0.5 : 0.15));
     seeU.uSeeR.value += ((indoor ? 3.4 : 0.8 + camCur * 0.06) - seeU.uSeeR.value) * Math.min(1, dt * 3);
     camFree = dist;   // 가리는 벽·지붕·나무는 점무늬로 비쳐 보이니 카메라는 당기지 않고 마음대로 돌려 볼 수 있음
     camCur += (Math.min(dist, camFree) - camCur) * Math.min(1, dt * (camFree < camCur ? 12 : 3));
@@ -1007,18 +1096,18 @@ function frame() {
     cam.lookAt(camState.tgt); seeU.uCam.value.copy(cam.position); seeU.uTgt.value.copy(camState.tgt);
     marker.material.opacity = 0.5 + 0.35 * Math.sin(tAll * 5);
     if (audio) {
-      const lv = { village: 1, temple: 0, church: 0, cathedral: 0 }; let best = 'village', bv = 0.3;
+      const lv = Object.fromEntries([[MAP.baseZone, 1], ...MAP.zones.map(z => [z, 0])]); let best = MAP.baseZone, bv = 0.3;
       for (const [k, z] of Object.entries(Z)) {
         const d = Math.hypot(player.pos.x - z.center[0], player.pos.z - z.center[2]);
         const v = THREE.MathUtils.clamp((z.radius * 1.3 - d) / (z.radius * 0.7), 0, 1); lv[k] = v * v * (3 - 2 * v);
         if (lv[k] > bv) { bv = lv[k]; best = k; }
       }
-      lv.village = 1 - 0.85 * Math.max(lv.temple, lv.church, lv.cathedral); audio.setLevels(lv); setZone(best);
+      lv[MAP.baseZone] = 1 - 0.85 * Math.max(...MAP.zones.map(z => lv[z] || 0)); audio.setLevels(lv); setZone(best);
     }
     if (sitting) { breathT += dt; const ph = breathT % 10, inhale = ph < 4; $('breath').classList.toggle('in', inhale); $('breathText').textContent = inhale ? '숨을 들이쉬어요' : '천천히 내쉬어요'; }
     camTick++; if (camTick % 6 === 0) updateActionButton();
     leaves && leaves(dt, camState.tgt.x, camState.tgt.z, tAll);
-    smoke.update(dt); updateSparkles(dt); aura.update(dt, tAll); updateBubbles(dt);
+    smoke.update(dt); updateSparkles(dt); updateMagic(dt, tAll); aura.update(dt, tAll); updateBubbles(dt);
     if (camTick % 15 === 0) { const c = $('caption'); document.documentElement.style.setProperty('--capH', (c.hidden ? 22 : c.offsetHeight + 30) + 'px'); }
     windU.value = tAll;
     sun.position.set(camState.tgt.x + sun.userData.off[0], sun.userData.off[1], camState.tgt.z + sun.userData.off[2]); sun.target.position.copy(camState.tgt);
@@ -1034,4 +1123,4 @@ function frame() {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__dbg = { applyTime, TIME, get bloom() { return BLOOM_ON; }, set bloom(v) { BLOOM_ON = v; }, get player() { return player; }, get npcs() { return npcs; }, startWalk, walkTo, POI, SPOTS, startAction, camState, nav, setPick: k => { pickKey = k; }, rec, groundH, say, nearSpot: () => nearSpot };
+window.__dbg = { THREE_V: THREE.Vector3, applyTime, TIME, get bloom() { return BLOOM_ON; }, set bloom(v) { BLOOM_ON = v; }, get player() { return player; }, get npcs() { return npcs; }, startWalk, walkTo, POI, SPOTS, startAction, camState, nav, setPick: k => { pickKey = k; }, rec, groundH, say, nearSpot: () => nearSpot };

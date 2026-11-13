@@ -117,3 +117,6 @@ button.act.alt{background:linear-gradient(180deg,#8A6AD0,#5A3EA8);box-shadow:0 4
 #actMore button{font-size:14px;padding:9px 14px;border-radius:999px;white-space:nowrap;min-height:40px}
 #actBar{flex-wrap:wrap;justify-content:center;align-items:center;width:max-content;max-width:calc(100vw - 24px)}
 @media (min-width:900px){#actMore{flex-direction:column;align-items:flex-end}}
+.maps{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 6px}
+.mapCard{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:14px;border:2px solid transparent;background:#F7EBD8;color:#3A2A20;font:inherit;cursor:pointer;box-shadow:none}
+.mapCard .mi{font-size:24px}.mapCard.on{border-color:#D9572E;background:#FFF4E2;color:#3A2A20}

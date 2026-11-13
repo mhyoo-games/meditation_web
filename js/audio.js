@@ -3,6 +3,7 @@
 // 절: 목탁 + 반야심경 독경(한글 음절의 모음으로 목소리 합성) + 범종 + 풍경
 // 교회: 오르간 찬송가·크리스마스 캐럴 (작곡 1900년 이전, 퍼블릭 도메인 선율)
 // 성당: 성가대(합창 합성) + 오르간 + 종 (그레고리오 성가풍 키리에는 자작 선율)
+// 별빛 마법학교: 첼레스타·하프·현악·합창 소리를 합성한 몽환적인 곡 (모두 이 사이트를 위해 새로 지은 선율)
 
 export const HEART_SUTRA = [
   '마하반야바라밀다심경',
@@ -89,7 +90,35 @@ function pickChord(key, notes) {
 const chordNotes = (key, c) => { let prev = 0; return KEYS[key][c].map(p => { let f = hz(p + '3'); while (f < prev) f *= 2; prev = f; return f; }); };
 
 // ---------------------------------------------------------------- 엔진
-export function createAudio() {
+// 마법학교 곡 (자작): mel = 선율, ch = 마디마다 화음, meter = 박자
+const CH = s => s.split('|').map(c => c.trim().split(/\s+/).map(hz));
+export const SCHOOL_SONGS = {
+  school: [
+    { title: '별빛 왈츠 (자작)', bpm: 88, meter: 3, mel: P(`
+      A4:1 D5:1 E5:1 F5:2 E5:1 D5:1 C5:1 Bb4:1 A4:3 Bb4:1 D5:1 F5:1 G5:2 F5:1 E5:1 D5:1 C#5:1 E5:3
+      A4:1 D5:1 E5:1 F5:2 G5:1 A5:1.5 G5:0.5 F5:1 E5:1 D5:1 Bb4:1 G4:1 Bb4:1 D5:1 C#5:2 E5:1 D5:3 R:3`),
+      ch: CH('D3 A3 D4 F4|D3 A3 D4 F4|Bb2 F3 Bb3 D4|A2 E3 A3 C#4|Bb2 F3 Bb3 D4|G2 D3 G3 Bb3|A2 E3 A3 C#4|A2 E3 A3 C#4|D3 A3 D4 F4|D3 A3 D4 F4|F2 C3 F3 A3|Bb2 F3 Bb3 D4|G2 D3 G3 Bb3|A2 E3 A3 C#4|D3 A3 D4 F4|D3 A3 D4 F4') },
+    { title: '안개 낀 탑 (자작)', bpm: 76, meter: 4, mel: P(`
+      E5:1.5 D5:0.5 B4:2 G4:1 A4:1 B4:2 C5:1.5 B4:0.5 A4:2 E4:2 R:2 G4:1 A4:1 B4:1 D5:1 E5:2 F#5:1 E5:1 D5:1.5 B4:0.5 G4:2 E4:4 R:4`),
+      ch: CH('E2 B2 E3 G3|C3 G3 C4 E4|A2 E3 A3 C4|B2 F#3 B3 D4|G2 D3 G3 B3|C3 G3 C4 E4|B2 F#3 B3 D4|E2 B2 E3 G3') },
+  ],
+  hall: [
+    { title: '촛불 아래의 왈츠 (자작)', bpm: 100, meter: 3, mel: P(`
+      C5:1 F5:1 A5:1 G5:2 F5:1 E5:1 F5:1 G5:1 A5:2 C5:1 D5:1 F5:1 Bb5:1 A5:2 G5:1 F5:1 E5:1 D5:1 C5:3
+      C5:1 F5:1 A5:1 G5:2 F5:1 E5:1 D5:1 C5:1 Bb4:2 G4:1 A4:1 C5:1 F5:1 E5:1.5 D5:0.5 E5:1 F5:3 R:3`),
+      ch: CH('F2 C3 F3 A3|C3 G3 C4 E4|C3 G3 C4 E4|F2 C3 F3 A3|Bb2 F3 Bb3 D4|F2 C3 F3 A3|C3 G3 Bb3 E4|F2 C3 F3 A3|F2 C3 F3 A3|C3 G3 C4 E4|C3 G3 C4 E4|G2 D3 G3 Bb3|F2 C3 F3 A3|C3 G3 C4 E4|F2 C3 F3 A3|F2 C3 F3 A3') },
+  ],
+  library: [
+    { title: '책장 사이의 꿈 (자작)', bpm: 60, meter: 4, sparse: true, scale: 'C5 D5 E5 F#5 G5 A5 B5 C6 E6'.split(' ').map(hz),
+      ch: CH('C3 G3 B3 E4|D3 A3 C4 F#4|A2 E3 G3 C4|D3 A3 C4 F#4') },
+  ],
+  tower: [
+    { title: '별의 노래 (자작)', bpm: 54, meter: 4, sparse: true, choir: true, scale: 'E5 F#5 G5 B5 D6 E6 F#6'.split(' ').map(hz),
+      ch: CH('E3 B3 D4 F#4|C3 G3 B3 E4|G2 D3 G3 B3|D3 A3 C#4 F#4') },
+  ],
+};
+
+export function createAudio(mapKey = 'village') {
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   const master = ctx.createGain(); master.gain.value = 0.8;
   const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3;
@@ -118,7 +147,9 @@ export function createAudio() {
     village: bus(2.2, 3, 0.35, 0.5), temple: bus(3.2, 2.5, 0.45, 0.35),
     church: bus(2.6, 2.8, 0.4, 0.45), cathedral: bus(6.5, 2.2, 0.7, 0.3),
   };
-  B.village.out.gain.value = 1;
+  const SCHOOL = mapKey === 'school';
+  if (SCHOOL) { B.school = bus(4.5, 2.4, 0.55, 0.4); B.hall = bus(3.5, 2.6, 0.5, 0.45); B.library = bus(3.0, 3.0, 0.45, 0.35); B.tower = bus(7.0, 2.0, 0.75, 0.3); B.school.out.gain.value = 1; }
+  else B.village.out.gain.value = 1;
 
   // ---------------- 소리 재료
   const organWave = ctx.createPeriodicWave(new Float32Array([0, 1, 0.55, 0.35, 0.3, 0.12, 0.1, 0.05, 0.12]), new Float32Array(9));
@@ -326,15 +357,89 @@ export function createAudio() {
     if (nextRustle < now + ahead) { const t = Math.max(nextRustle, now); for (let i = 0; i < 6; i++) noiseHit(d, t + i * 0.05, 3000 + Math.random() * 2000, 1.2, 0.012, 0.12); nextRustle = t + 4 + Math.random() * 8; }
   }
 
+  // ---------------- 마법학교
+  function celesta(dest, f, t, v = 0.07) { pluck(dest, f, t, v, 2.4, 3.0); pluck(dest, f * 2, t, v * 0.25, 1.2, 2.0); }
+  function harp(dest, f, t, v = 0.06) { pluck(dest, f, t, v, 3.4, 2.0); }
+  function strings(dest, freqs, t, d, v = 0.02) { pad(dest, freqs, t, d, v, 'sawtooth', 1100); }
+  const zs = {}; let owlT = 0, crickT = 0, tickT = 0, pageT = 0, fireT = 0, sWind = null, starChoir = null;
+  function schoolSong(zone, now, ahead) {
+    const list = SCHOOL_SONGS[zone]; const S = zs[zone] || (zs[zone] = { i: 0, n: 0, t: 0, bar: 0, beat: 0 });
+    const song = list[S.i % list.length], spb = 60 / song.bpm, dest = B[zone].input;
+    if (S.t < now) { S.t = now + 0.2; S.n = 0; S.bar = 0; S.beat = 0; listeners.song && listeners.song(zone, song.title); }
+    while (S.t < now + ahead) {
+      if (song.sparse) {                         // 도서관·천문대: 박마다 가끔 한 음, 마디마다 화음
+        if (S.beat % song.meter === 0) {
+          const c = song.ch[S.bar % song.ch.length]; strings(dest, c.slice(1), S.t, spb * song.meter, zone === 'tower' ? 0.012 : 0.014);
+          harp(dest, c[0], S.t, 0.05);
+          if (song.choir) {
+            if (!starChoir) { starChoir = voice(B.tower.input, 6, 220, 14, 0.06); starChoir.lo = voice(B.tower.input, 4, 110, 10, 0.05); }
+            starChoir.pitch(c[2] * 2, S.t, 0.4); starChoir.lo.pitch(c[1], S.t, 0.4); starChoir.vowel(['a', 'o', 'u', 'a'][S.bar % 4], S.t, 0.5); starChoir.amp(1, S.t, 0.8); starChoir.lo.amp(1, S.t, 0.8);
+          }
+          S.bar++;
+        }
+        if (Math.random() < (zone === 'tower' ? 0.45 : 0.35)) celesta(dest, song.scale[Math.floor(Math.random() * song.scale.length)], S.t + Math.random() * 0.1, 0.045);
+        S.t += spb; S.beat++;
+        if (S.bar >= song.ch.length * 4) { S.bar = 0; S.i++; S.t += spb * 2; }
+        continue;
+      }
+      const [n, d] = song.mel[S.n], f = hz(n);
+      if (S.beat % song.meter < 1e-6 || Math.abs(S.beat % song.meter - song.meter) < 1e-6) {   // 마디 첫 박: 화음
+        const c = song.ch[S.bar % song.ch.length];
+        strings(dest, c.slice(1), S.t, spb * song.meter, 0.016);
+        for (let k = 0; k < song.meter; k++) harp(dest, c[Math.min(c.length - 1, k + (k ? 0 : 0))] * (k ? 1 : 1), S.t + k * spb, k ? 0.035 : 0.055);
+        if (S.bar % 4 === 0) for (let k = 0; k < 6; k++) harp(dest, c[k % c.length] * (k >= c.length ? 2 : 2), S.t + k * 0.06, 0.02);   // 하프 글리산도
+        S.bar++;
+      }
+      if (f) celesta(dest, f, S.t, zone === 'hall' ? 0.065 : 0.075);
+      S.t += d * spb; S.beat += d; S.n++;
+      if (S.n >= song.mel.length) { S.n = 0; S.bar = 0; S.beat = 0; S.i++; S.t += spb * 3; const nx = list[S.i % list.length]; listeners.song && listeners.song(zone, nx.title); }
+    }
+  }
+  function scheduleSchool(now, ahead) {
+    const d = B.school.input;
+    if (!sWind) {
+      const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 380;
+      const g = ctx.createGain(); g.gain.value = 0.03;
+      const l = ctx.createOscillator(); l.frequency.value = 0.05; const lg = ctx.createGain(); lg.gain.value = 200; l.connect(lg).connect(f.frequency);
+      s.connect(f).connect(g).connect(master); s.start(); l.start(); sWind = g; wind = g;
+    }
+    schoolSong('school', now, ahead);
+    if (owlT < now + ahead) {           // 부엉이
+      const t = Math.max(owlT, now);
+      [[0, 0.35], [0.5, 0.25], [0.8, 0.5]].forEach(([dt, len]) => {
+        const o = ctx.createOscillator(); o.type = 'sine'; const g = ctx.createGain(); const tt = t + dt;
+        o.frequency.setValueAtTime(400, tt); o.frequency.linearRampToValueAtTime(350, tt + len);
+        g.gain.setValueAtTime(0, tt); g.gain.linearRampToValueAtTime(0.03, tt + 0.05); g.gain.linearRampToValueAtTime(0, tt + len);
+        o.connect(g).connect(d); o.start(tt); o.stop(tt + len + 0.05);
+      });
+      owlT = t + 14 + Math.random() * 18;
+    }
+    if (crickT < now + ahead) { const t = Math.max(crickT, now); for (let i = 0; i < 4; i++) { const o = ctx.createOscillator(); o.frequency.value = 4400 + Math.random() * 300; const g = ctx.createGain(); const tt = t + i * 0.06; g.gain.setValueAtTime(0, tt); g.gain.linearRampToValueAtTime(0.006, tt + 0.01); g.gain.linearRampToValueAtTime(0, tt + 0.04); o.connect(g).connect(d); o.start(tt); o.stop(tt + 0.05); } crickT = t + 0.9 + Math.random() * 1.6; }
+    if (target.hall > 0.003) {
+      schoolSong('hall', now, ahead);
+      if (fireT < now + ahead) { const t = Math.max(fireT, now); noiseHit(B.hall.input, t, 1800 + Math.random() * 2500, 3, 0.02 + Math.random() * 0.02, 0.05); fireT = t + 0.08 + Math.random() * 0.35; }
+    }
+    if (target.library > 0.003) {
+      schoolSong('library', now, ahead);
+      if (tickT < now + ahead) { const t = Math.max(tickT, now); noiseHit(B.library.input, t, 3200, 8, 0.02, 0.02); tickT = t + 1; }
+      if (pageT < now + ahead) { const t = Math.max(pageT, now); pageSound(B.library.input, t, 0.03); pageT = t + 6 + Math.random() * 10; }
+    }
+    if (target.tower > 0.003) schoolSong('tower', now, ahead);
+    else if (starChoir) { starChoir.amp(0, now, 0.5); starChoir.lo.amp(0, now, 0.5); }
+  }
+  function pageSound(dest, t, v) { for (let i = 0; i < 5; i++) noiseHit(dest, t + i * 0.035, 2500 + i * 600, 1.5, v * (1 - i / 6), 0.08, 'bandpass'); }
+
   // ---------------- 구역 음량
-  const target = { village: 1, temple: 0, church: 0, cathedral: 0 };
+  const target = SCHOOL ? { school: 1, hall: 0, library: 0, tower: 0, village: 0, temple: 0, church: 0, cathedral: 0 } : { village: 1, temple: 0, church: 0, cathedral: 0 };
   function setLevels(lv) {
     Object.assign(target, lv);
-    for (const k in B) B[k].out.gain.setTargetAtTime(target[k], ctx.currentTime, 0.6);
-    if (wind) wind.gain.setTargetAtTime(0.035 * (0.4 + 0.6 * target.village), ctx.currentTime, 0.8);
+    for (const k in B) B[k].out.gain.setTargetAtTime(target[k] || 0, ctx.currentTime, 0.6);
+    if (wind) wind.gain.setTargetAtTime((SCHOOL ? 0.03 : 0.035) * (0.4 + 0.6 * (SCHOOL ? target.school : target.village)), ctx.currentTime, 0.8);
   }
   function tick() {
     const now = ctx.currentTime, ahead = 0.4;
+    if (SCHOOL) { scheduleSchool(now, ahead); return; }
     scheduleVillage(now, ahead);
     if (target.temple > 0.003) scheduleTemple(now, ahead); else if (monks) { monks.amp(0, now, 0.2); monks.lo.amp(0, now, 0.2); sT = 0; }
     for (const z of ['church', 'cathedral']) if (target[z] > 0.003) scheduleSong(z, now, ahead); else players[z].t = 0;
@@ -345,6 +450,8 @@ export function createAudio() {
     start() { ctx.resume(); if (!timer) timer = setInterval(tick, 100); },
     setVolume(v) { master.gain.setTargetAtTime(v, ctx.currentTime, 0.1); },
     nextSong(zone) { const S = players[zone]; if (!S) return; S.n = 0; S.beat = 0; S.i = (S.i + 1) % SONGS[zone].length; S.t = 0; if (choir) { choir.amp(0, ctx.currentTime, 0.1); choirLow.amp(0, ctx.currentTime, 0.1); } },
+    page() { pageSound(master, ctx.currentTime + 0.02, 0.05); },
+    nextSchool(zone) { const S = zs[zone]; if (S) { S.i++; S.t = 0; } },
     chime() { const t = ctx.currentTime + 0.02; [2093, 2637, 3136].forEach((f, i) => pluck(master, f, t + i * 0.12, 0.05, 2.2, 2.7)); },
     moktakOnce(delay = 0.05) { moktak(ctx.currentTime + delay, 0.6); },
     setChurchChoir(on) { churchSing = on; if (!on && cSing) { cSing.amp(0, ctx.currentTime, 0.3); cSingLow.amp(0, ctx.currentTime, 0.3); } },

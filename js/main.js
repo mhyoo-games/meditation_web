@@ -463,7 +463,8 @@ ANIMALS.forEach(a => {
 const windU = { value: 0 };
 function texRepeat(p) { const t = texL.load(asset(p)); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
 function makeTerrain() {
-  const st = QKEY === 'low' ? 2 : 1, N0 = HM.n, n = Math.floor((N0 - 1) / st) + 1, S = HM.size * (n - 1) * st / (N0 - 1);   // 가벼운 화질: 땅 격자를 절반으로
+  // 땅 격자: 가볍게는 절반. 마법학교는 어느 화질이든 절반 (땅이 거의 평평해 차이가 안 보이고, 삼각형이 11만 → 3만)
+  const st = Math.max(QKEY === 'low' ? 2 : 1, MAP.key === 'school' ? 2 : 1), N0 = HM.n, n = Math.floor((N0 - 1) / st) + 1, S = HM.size * (n - 1) * st / (N0 - 1);   // 가벼운 화질: 땅 격자를 절반으로
   const g = new THREE.PlaneGeometry(S, S, n - 1, n - 1); g.rotateX(-Math.PI / 2);
   if (st > 1) g.translate(-(HM.size - S) / 2, 0, -(HM.size - S) / 2);
   const pos = g.attributes.position;
@@ -549,6 +550,11 @@ function placeProps(gltf) {
       if (/Grass|Plant|Flowers/.test(m) && h2 < 0.6) return;
       if (/Tree|Willow/.test(m) && Math.hypot(x, z) > 26 && h2 < 0.5) return;
     }
+    // 마법학교 숲: 소나무가 230그루라 가장 무거움 → 먼 소나무는 화질에 따라 덜 심는다 (가볍게 절반 이상, 보통 1/3)
+    if (MAP.key === 'school' && /Pine/.test(m)) {
+      const h3 = Math.abs(Math.sin(i * 5.71 + x * 1.93) * 3141.59) % 1, far = Math.hypot(x, z);
+      if (far > 26 && h3 < (QKEY === 'low' ? 0.6 : QKEY === 'mid' ? 0.35 : 0.15)) return;
+    }
     if (src[m + '~r']) k = m + '~' + VAR[Math.floor(h * VAR.length)];
     (groups[k] = groups[k] || []).push([x, y, z, ry, s]);
   });
@@ -559,7 +565,8 @@ function placeProps(gltf) {
     const geo = s.geometry; if (!geo.attributes.normal) geo.computeVertexNormals();
     const im = new THREE.InstancedMesh(geo, propMaterial(k), list.length);
     list.forEach(([x, y, z, ry, ss], i) => { q.setFromAxisAngle(up, ry); M.compose(v.set(x, y, z), q, sc.set(ss, ss, ss)); im.setMatrixAt(i, M); });
-    im.castShadow = QKEY !== 'low' && !/Grass|Plant|Flowers|Lilypad/.test(k); im.receiveShadow = true; im.computeBoundingSphere(); im.name = k;
+    // 마법학교 소나무는 그림자를 그리지 않는다 (밤이라 잘 안 보이는데 그림자로 한 번 더 그리면 소나무 몫이 두 배)
+    im.castShadow = QKEY !== 'low' && !/Grass|Plant|Flowers|Lilypad/.test(k) && !(MAP.key === 'school' && /Pine/.test(k)); im.receiveShadow = true; im.computeBoundingSphere(); im.name = k;
     root.add(im);
   }
   scene.add(root); return root;

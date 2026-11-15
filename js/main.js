@@ -15,10 +15,8 @@ import { createAudio, HEART_SUTRA } from './audio.js';
 const MAPKEY = (() => { const q = new URLSearchParams(location.search).get('map'); if (MAPS[q]) return q; try { const s = localStorage.getItem('mw_map'); if (MAPS[s]) return s; } catch (e) { } return 'village'; })();
 const MAP = MAPS[MAPKEY];
 const LAYOUT = (await import(MAP.layout + VQ)).default;
-const FOREST = !!MAP.jumpMap;   // 점프 맵: 발판 위로 오르내리는 진짜 높이 계산을 씀
 import { createNav } from './nav.js';
 import { createMinimap } from './minimap.js';
-import { createCourse } from './jumpcourse.js';
 
 // ---------------------------------------------------------------- 동물
 const ANIMALS = [
@@ -213,8 +211,6 @@ const ACTION_INFO = {
   library_shelf: { label: '📚 책 고르기', count: 'books', enter: 'Interact', loop: 'Idle', exit: null, msg: '', rec: 'read' },
   magic_cast: { label: '✨ 마법 연습', count: 'spells', enter: null, loop: 'Spellcasting', exit: null, msg: '마법진 위에서 주문을 외워요. 빛 방울이 피어올라요.', rec: 'magic' },
   stars: { label: '🔭 별 보기', enter: 'Interact', loop: 'Idle', exit: null, msg: '', rec: 'stars' },
-  forest_stump: { label: '🪵 그루터기에 앉기', enter: 'Sit_Chair_Down', loop: 'Sit_Chair_Idle', exit: 'Sit_Chair_StandUp', msg: '모닥불 타는 소리를 들으며 쉬어요.', rec: 'meditate' },
-  forest_view: { label: '🌄 경치 보기', enter: null, loop: 'Idle', exit: null, msg: '나무 꼭대기에서 숲을 내려다봐요. 바람이 시원해요.', rec: 'meditate' },
   cathedral_candle: { label: '🕯️ 촛불 켜기', count: 'candle', rec: 'pray', enter: 'Interact', loop: 'Pray_Stand', exit: null, msg: '작은 초에 불을 밝혔어요.' },
 };
 const SPOTS = [];
@@ -274,12 +270,6 @@ class Actor {
   turnTo(yaw, dt, k = 8) { let d = yaw - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); this.yaw += d * Math.min(1, dt * k); }
   step(dx, dz, sp, dt) {
     const nx = this.pos.x + dx * sp * dt, nz = this.pos.z + dz * sp * dt;
-    if (FOREST && this === player && this.pos.y > groundH(this.pos.x, this.pos.z) + 0.3) {   // 발판 위·공중에서는 땅의 바위·뿌리는 상관없고 큰 나무 줄기만 막음
-      if (!trunkBlocked(nx, nz)) { this.pos.x = nx; this.pos.z = nz; return true; }
-      if (!trunkBlocked(nx, this.pos.z)) { this.pos.x = nx; return true; }
-      if (!trunkBlocked(this.pos.x, nz)) { this.pos.z = nz; return true; }
-      return false;
-    }
     if (!blocked(nx, nz)) { this.pos.x = nx; this.pos.z = nz; return true; }
     if (blocked(this.pos.x, this.pos.z) && Math.hypot(this.pos.x, this.pos.z) < LAYOUT.bound) { this.pos.x = nx; this.pos.z = nz; return true; }   // 이미 막힌 곳 안(의자·방석에서 일어난 직후 등)이면 걸어 나올 수 있게
     if (!blocked(nx, this.pos.z)) { this.pos.x = nx; return true; }
@@ -351,7 +341,6 @@ class Actor {
       let dy = g.y1 - g.y0; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); this.yaw = g.y0 + dy * e;
       if (k >= 1) { this.glide = null; g.done && g.done(); }
     }
-    if (FOREST && this === player && course) { forestStep(this, dt); this.sync(); return; }
     const gy = groundH(this.pos.x, this.pos.z), dyv = gy - this.pos.y;
     this.pos.y += dyv * Math.min(1, dt * (dyv > 0 ? 9 : 7));   // 올라갈 때·내려갈 때 부드럽게
     if (this.air) airStep(this, dt, gy);
@@ -418,7 +407,7 @@ function makeMotes(n = 260) {   // 마법학교: 천천히 떠오르는 빛 먼�
 function makeLeaves(n = 420) {
   const g = new THREE.PlaneGeometry(0.13, 0.09);
   const mesh = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), n); mesh.frustumCulled = false;
-  const cols = (FOREST ? ['#7DBA4E', '#A6CF5A', '#5E9A3E', '#C8DE6A', '#8FC456', '#E8D06A'] : ['#D9382B', '#E8552E', '#F07A2E', '#F2C230', '#C42F2F', '#F29A38']).map(c => new THREE.Color(c));
+  const cols = ['#D9382B', '#E8552E', '#F07A2E', '#F2C230', '#C42F2F', '#F29A38'].map(c => new THREE.Color(c));
   const L = []; const M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
   for (let i = 0; i < n; i++) { L.push({ x: (Math.random() - 0.5) * 36, y: Math.random() * 9, z: (Math.random() - 0.5) * 36, v: 0.35 + Math.random() * 0.45, w: Math.random() * 6, r: Math.random() * 6 }); mesh.setColorAt(i, cols[i % cols.length]); }
   scene.add(mesh);
@@ -579,7 +568,8 @@ function placeProps(gltf) {
 // ---------------------------------------------------------------- 불러오기
 const models = {}; let villageRoot = null, terrainMesh = null, propsRoot = null; const roofs = {}; let ready = null;
 async function loadAll(progress) {
-  const jobs = [['village', MAP.world], ['props', 'assets/props.glb'], ['anims', 'assets/animations/kaykit_animations.glb'], ...ANIMALS.map(a => [a.k, `${MAP.chars}${a.k}.glb`])];
+  // 동물은 화질에 맞는 주민 수만큼만 먼저 불러온다 (고른 동물이 빠져 있으면 산책 시작 때 하나 더) — 가벼운 화질은 11마리 중 6마리만
+  const jobs = [['village', MAP.world], ['props', 'assets/props.glb'], ['anims', 'assets/animations/kaykit_animations.glb'], ...ANIMALS.slice(0, QS.npcs).map(a => [a.k, `${MAP.chars}${a.k}.glb`])];
   let done = 0;
   await Promise.all(jobs.map(async ([k, p]) => { models[k] = await parse(await bin(p)); done++; progress(done / jobs.length); }));
   ANIMS = models.anims.animations;
@@ -612,8 +602,15 @@ let sitting = false, pendingAction = null;
 const marker = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.26, 24), new THREE.MeshBasicMaterial({ color: 0xFFF1D0, transparent: true, opacity: 0.85, depthWrite: false }));
 marker.rotation.x = -Math.PI / 2; marker.visible = false; scene.add(marker);
 
+// 산책에 나올 동물(고른 동물 + 주민 QS.npcs마리) 중 아직 안 불러온 것만 불러온다
+function castKeys() { const out = [pickKey]; for (const a of ANIMALS) if (a.k !== pickKey && out.length <= QS.npcs) out.push(a.k); return out; }
+async function ensureCast() {
+  const miss = castKeys().filter(k => !models[k]);
+  await Promise.all(miss.map(async k => { models[k] = await parse(await bin(`${MAP.chars}${k}.glb`)); }));
+}
 async function startWalk() {
-  await ready; if (started) return; started = true; $('btnJump').hidden = false; minimap.visible = true; document.body.classList.toggle('school', MAP.key === 'school');
+  await ready; if (started) return; started = true;
+  try { await ensureCast(); } catch (e) { started = false; toast('동물을 불러오지 못했어요', '잠시 뒤 다시 눌러 주세요'); console.error(e); return; } $('btnJump').hidden = false; minimap.visible = true; document.body.classList.toggle('school', MAP.key === 'school');
   if (!audio) { audio = createAudio(MAP.key); audio.start(); } audio.setVolume(parseFloat($('vol').value));
   for (const a of ANIMALS) {
     if (a.k !== pickKey && npcs.length >= QS.npcs) continue;   // 가벼운 화질에서는 주민 수를 줄임
@@ -622,7 +619,6 @@ async function startWalk() {
     else if (npcs.length < QS.npcs) { const v = new Villager(a, m, [LAYOUT.homes[a.k][0], LAYOUT.homes[a.k][2]]); const sp = OUT.walk[npcs.length % OUT.walk.length]; v.place(sp[0] + Math.random(), sp[1] + Math.random(), Math.random() * 6.28); npcs.push(v); }
   }
   if (!leaves) leaves = MAP.key === 'school' ? makeMotes() : makeLeaves(); camState.tgt.copy(player.pos); applyTime(TIME.cur);
-  if (FOREST) { camState.dist = 9; camState.pitch = 0.32; $('climb').hidden = false; joy.show(); }
   $('intro').hidden = true; $('hud').hidden = false; $('help').hidden = false;
   setTimeout(() => { $('help').hidden = true; }, 15000);
   hookAudioText();
@@ -679,7 +675,6 @@ canvas.addEventListener('pointerup', e => {
   pointers.delete(e.pointerId); if (pointers.size < 2) pinch0 = 0;
   if (!started || !down) return; const click = down.moved < 8 && performance.now() - down.t < 450; down = null;
   if (!click) return;
-  if (FOREST && player && player.pos.y > 1.4) { if (!climb.tapHint) { climb.tapHint = 1; toast('발판 위에서는 방향키(조이스틱)와 점프로 움직여요', 'Alt 점프 · 공중에서 한 번 더 = 앞구르기'); } return; }
   ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, cam);
   const targets = [terrainMesh, ...MAP.clickTargets.map(n => villageRoot.getObjectByName(n))].filter(Boolean);
   if (!terrainMesh) return;
@@ -717,8 +712,6 @@ $('goMenu').addEventListener('click', e => {
   if (k === 'rescue') { rescue(); return; }
   if (k === 'maps') { resetToIntro(); $('maps').scrollIntoView({ block: 'center' }); return; }
   if (k === 'reset') { resetToIntro(); return; }
-  if (POI[k] && POI[k].tp === 'rest') { const r = course && course.rests[climb.rest]; if (!r) { toast('아직 들른 쉼터가 없어요', '큰 나무를 오르다 깃발 있는 넓은 덱에 닿으면 쉼터가 돼요'); return; } climb.used = true; teleport(r.x, r.y, r.z + 0.01); return; }
-  if (POI[k] && POI[k].tp === 'down') { const j = LAYOUT.jump[0]; teleport(j.x, groundH(j.x, j.z + 1.4), j.z + 1.4); return; }
   const p = POI[k] && POI[k].home ? [LAYOUT.homes[pickKey][0], LAYOUT.homes[pickKey][2]] : POI[k].p; walkTo(p[0], p[1]);
 });
 const ORDER = ['dusk', 'night', 'day'];
@@ -816,7 +809,7 @@ function setMore(list) {
 function updateActionButton() {
   if (!player || player.acting) return;
   let best = null, bd = 2.2;
-  for (const s of SPOTS) { if (FOREST && (s.kind === 'forest_view' ? player.pos.y < LAYOUT.top - 1 : player.pos.y > groundH(player.pos.x, player.pos.z) + 0.5)) continue; const d = Math.hypot(s.x - player.pos.x, s.z - player.pos.z); if (d < bd && !s.taken) { bd = d; best = s; } }
+  for (const s of SPOTS) { const d = Math.hypot(s.x - player.pos.x, s.z - player.pos.z); if (d < bd && !s.taken) { bd = d; best = s; } }
   if (!best) for (const it of LAYOUT.interiors) if (insideRect(it, player.pos.x, player.pos.z)) best = MAP.roofKind[it.roof] ? nearest(MAP.roofKind[it.roof]) : null;
   nearSpot = best; const b = $('btnAct'), b2 = $('btnAlt');
   if (best) {
@@ -855,7 +848,7 @@ function setZone(z) {
   if (z === 'cathedral') { $('capTitle').textContent = '♪ ' + (songTitle.cathedral || '성가대'); $('capText').textContent = '성가대가 노래하고, 종소리가 가끔 울려요.'; }
   if (z === 'hall') { $('capTitle').textContent = '♪ ' + (songTitle.hall || '촛불 아래의 왈츠'); $('capText').textContent = '천장 위로 촛불이 떠 있고, 하프와 첼레스타가 조용히 연주해요.'; }
   if (z === 'library') { $('capTitle').textContent = '♪ ' + (songTitle.library || '책장 사이의 꿈'); $('capText').textContent = '책장 넘기는 소리, 시계 소리, 멀리서 들려오는 은은한 선율.'; }
-  $('btnBell').hidden = FOREST;
+  $('btnBell').hidden = false;
   if (z === 'canopy') { $('capTitle').textContent = '🌳 하늘 정원'; $('capText').textContent = '꼭대기에 올랐어요. 바람 소리를 들으며 쉬어 가요. 내려갈 때는 가 보기 → 땅으로 내려가기.'; }
   if (z === 'tower') { $('capTitle').textContent = '♪ ' + (songTitle.tower || '별의 노래'); $('capText').textContent = '망원경으로 별자리를 찾아보세요.'; }
   const nm = MAP.names[z] || MAP.names[MAP.baseZone]; $('placeName').textContent = nm[0]; $('placeSub').textContent = nm[1];
@@ -891,7 +884,7 @@ function rescue() {   // 버튼: 지금 자리에서 가장 가까운 빈자리�
   });
 }
 function resetToIntro() {   // 처음 화면(동물 고르기)으로
-  if (!started) return; $('btnJump').hidden = true; minimap.visible = false; $('climb').hidden = true; joy.hide();
+  if (!started) return; $('btnJump').hidden = true; minimap.visible = false; joy.hide();
   if (sitting) { sitting = false; $('btnSit').classList.remove('on'); $('btnSit').textContent = '명상하기'; $('breath').hidden = true; }
   for (const a of [player, ...npcs]) { if (!a) continue; a.mixer.stopAllAction(); a.mixer.uncacheRoot(a.root); scene.remove(a.root); a.unhold && a.unhold();
     a.root.traverse(o => { if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose(); if (o.material && o.material !== outlineMat) o.material.dispose(); }); }   // 다시 시작할 때마다 뼈 텍스처가 쌓이던 것 정리
@@ -925,7 +918,7 @@ function renderRecords() {
   const pct = N ? Math.round((p - L[0]) / (N[0] - L[0]) * 100) : 100;
   $('recLevel').innerHTML = `<div class="lvl"><span class="ic">${L[2]}</span><div style="flex:1"><b>${L[1]}</b> · 마음 점수 ${p}${N ? ` <small>(다음 ${N[2]} ${N[1]}까지 ${N[0] - p})</small>` : ''}<div class="bar"><i style="width:${pct}%"></i></div></div></div>`;
   const tt = r.todayD === new Date().toDateString() ? r.todayT : r.todayT;
-  const st = [['명상', fmtT(r.t.meditate)], ['기도', fmtT(r.t.pray)], ['책 읽기', fmtT(r.t.read || 0)], ['마법 연습', (r.n.spells || 0) + '번'], ['점프', (r.n.jumps || 0) + '번 (2단 ' + (r.n.flash || 0) + ')'], ['숲 꼭대기', (r.n.forestTop || 0) + '번' + ((r.rec || {}).forestTime ? ' · 최고 ' + Math.floor(r.rec.forestTime / 60) + '분 ' + (r.rec.forestTime % 60) + '초' : '')], ['절한 시간', fmtT(r.t.bowTime)], ['성가대', fmtT(r.t.sing)], ['절', r.n.bows + '번'], ['108배', r.n.b108 + '번'], ['목탁', r.n.moktak + '번'], ['시주', r.n.donate + '번'], ['촛불·향', (r.n.candle + r.n.incense) + '번'], ['들른 날', r.days.length + '일'], ['연속', r.streak + '일 (최고 ' + r.best + ')'], ['오늘 명상', fmtT((tt && tt.meditate) || 0)]];
+  const st = [['명상', fmtT(r.t.meditate)], ['기도', fmtT(r.t.pray)], ['책 읽기', fmtT(r.t.read || 0)], ['마법 연습', (r.n.spells || 0) + '번'], ['점프', (r.n.jumps || 0) + '번 (2단 ' + (r.n.flash || 0) + ')'], ['절한 시간', fmtT(r.t.bowTime)], ['성가대', fmtT(r.t.sing)], ['절', r.n.bows + '번'], ['108배', r.n.b108 + '번'], ['목탁', r.n.moktak + '번'], ['시주', r.n.donate + '번'], ['촛불·향', (r.n.candle + r.n.incense) + '번'], ['들른 날', r.days.length + '일'], ['연속', r.streak + '일 (최고 ' + r.best + ')'], ['오늘 명상', fmtT((tt && tt.meditate) || 0)]];
   $('recStats').innerHTML = st.map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join('');
   $('recAch').innerHTML = ACH.map(a => {
     const got = r.got[a.id]; let pr = '';
@@ -1147,13 +1140,13 @@ function separate(dt) {   // 동물끼리 겹치지 않게 살짝 밀어 냄 (�
 
 // ---------------------------------------------------------------- 점프 · 2단 점프
 // 땅에서 한 번 누르면 폴짝, 공중에서 한 번 더 누르면 바라보는 쪽으로 휙 날아가요 (빛 꼬리).
-const GRAV = 17, JUMP_V = 5.6, DASH_V = FOREST ? 6 : 8.5, DASH_T = FOREST ? 0.3 : 0.4, DASH_UP = FOREST ? 2.4 : 3.4, ROLL_T = 0.46, ROLL_C = 0.62;   // 점프 맵은 2단 점프가 조금 짧아 발판을 맞추기 쉬움
-const dashCol = MAP.key === 'school' ? 0xA8D8FF : FOREST ? 0xB8F2A0 : 0xFFB070;
+const GRAV = 17, JUMP_V = 5.6, DASH_V = 8.5, DASH_T = 0.4, DASH_UP = 3.4, ROLL_T = 0.46, ROLL_C = 0.62;
+const dashCol = MAP.key === 'school' ? 0xA8D8FF : 0xFFB070;
 function jump() {
   const p = player; if (!p || sitting || p.glide) return;
   if (p.acting) { stopActing(); return; }
   if (!p.air) {
-    p.air = true; p.vy = JUMP_V; p.jy = FOREST ? 0 : Math.max(0, p.jy || 0); p.flashed = false; p.dash = null; p.fallTop = p.pos.y;
+    p.air = true; p.vy = JUMP_V; p.jy = Math.max(0, p.jy || 0); p.flashed = false; p.dash = null; p.fallTop = p.pos.y;
     p.play('Jump', 0.12); audio && audio.hop(); rec.add('jumps');
   } else if (!p.flashed) {
     p.flashed = true; p.vy = Math.max(p.vy, 0) + DASH_UP; p.roll = 0;
@@ -1180,57 +1173,8 @@ function airMove(a, dt) {
     a.rollA = e * Math.PI * 2; if (k >= 1) { a.roll = null; a.rollA = 0; }
   }
 }
-// ---------------------------------------------------------------- 점프 맵: 진짜 높이 (발판 위·아래)
-const course = FOREST ? createCourse(scene, LAYOUT, grad, groundH) : null;
-const TRUNK_C = course ? [course.goal.x, course.goal.z] : [0, 0], TRUNK_R = (LAYOUT.trunkR || 2.6) + 0.35;
-function trunkBlocked(x, z) { return Math.hypot(x - TRUNK_C[0], z - TRUNK_C[1]) < TRUNK_R || Math.hypot(x, z) > LAYOUT.bound; }
-const climb = { t0: null, used: false, rest: -1, done: false, top: 0 };
-function forestStep(a, dt) {
-  if (a.air) {
-    const y0 = a.pos.y; a.vy -= GRAV * dt; let ny = y0 + a.vy * dt;
-    airMove(a, dt);
-    if (a.vy <= 0) { const s = course.surface(a.pos.x, a.pos.z, y0, 0.03); if (ny <= s.y) { ny = s.y; a.pos.y = ny; forestLand(a, s); return; } }
-    a.pos.y = ny; a.fallTop = Math.max(a.fallTop || ny, ny);
-  } else {
-    const s = course.surface(a.pos.x, a.pos.z, a.pos.y, 0.4);
-    if (s.y < a.pos.y - 0.18) { a.air = true; a.vy = 0; a.flashed = false; a.fallTop = a.pos.y; if (!a.acting) a.play('Jump', 0.2); }   // 발판 끝에서 걸어 나가면 떨어짐
-    else { a.pos.y = s.y; a.standOn = s.it; }
-  }
-}
-function forestLand(a, s) {
-  a.air = false; a.dash = null; a.roll = null; a.rollA = 0; a.standOn = s.it;
-  const fell = (a.fallTop || a.pos.y) - a.pos.y;
-  if (!a.acting) a.play('Idle', 0.15); audio && audio.land(); puff(a.pos.x, a.pos.z, a.pos.y);
-  if (fell > 4) { rec.add('falls'); if (fell > 7 || Math.random() < 0.35) bubble(a, ['괜찮아요!', '다시 한 칸씩', '후~ 숨 고르고', '조금만 더'][Math.floor(Math.random() * 4)]); }
-  const j = s.it && s.it.j; if (!j) return;
-  if (j.t === 'rest') {
-    const i = course.rests.indexOf(j);
-    if (i > climb.rest) { climb.rest = i; toast(`🪶 쉼터 ${i + 1}에 왔어요`, '가 보기 메뉴에서 이곳으로 다시 올 수 있어요 (순간이동)'); audio && audio.chime(); sparkle(a.pos.x, a.pos.z, 1.0, 16); }
-  }
-  if (j.t === 'goal' && !climb.done) forestGoal(a);
-}
-function forestGoal(a) {
-  climb.done = true; const t = climb.t0 === null ? null : tAll - climb.t0;
-  rec.add('forestTop'); if (!climb.used) rec.add('forestPure');
-  const best = t !== null && !climb.used && rec.low('forestTime', Math.round(t));
-  const tt = t === null ? '' : `${Math.floor(t / 60)}분 ${Math.round(t % 60)}초`;
-  toast('🌳 하늘 정원에 올랐어요!', (tt ? `걸린 시간 ${tt}` : '') + (climb.used ? ' · 쉼터 순간이동을 썼어요' : best ? ' · 최고 기록!' : ''));
-  audio && audio.bless(); sparkle(a.pos.x, a.pos.z, 2.0, 60);
-  npcs.forEach((n, i) => setTimeout(() => n.play && n.play('Cheer'), 200 + i * 120));
-}
 function teleport(x, y, z) {
   stopActing(() => { player.path = null; player.air = false; player.vy = 0; player.dash = null; player.pos.set(x, y, z); player.fallTop = y; camState.tgt.set(x, y + 0.7, z); marker.visible = false; });
-}
-function climbHud() {
-  if (!FOREST || !player) return;
-  const h = Math.max(0, player.pos.y), onGround = !player.air && h < 0.7;
-  if (onGround && !player.acting) { climb.t0 = null; climb.used = false; climb.done = false; }
-  else if (climb.t0 === null && !climb.done && h > 0.3) climb.t0 = tAll;
-  climb.top = Math.max(climb.top, h); if (camTick % 30 === 0) rec.high('forestHeight', Math.round(h * 10) / 10);
-  const el = $('climb'); if (camTick % 4) return;
-  const t = climb.t0 !== null && !climb.done ? tAll - climb.t0 : null, top = LAYOUT.top;
-  const r = (rec.data.rec || {}), bt = r.forestTime;
-  el.innerHTML = `<b>🌲 ${h.toFixed(1)}m</b> / ${top}m<i style="width:${Math.min(100, h / top * 100)}%"></i><small>${t !== null ? '⏱ ' + Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0') + ' · ' : ''}${bt ? '최고 ' + Math.floor(bt / 60) + ':' + String(bt % 60).padStart(2, '0') : '아직 꼭대기 기록 없음'}${climb.used ? ' · 쉼터 씀' : ''}</small>`;
 }
 function trail(a, n) {
   for (let i = 0; i < n; i++) {
@@ -1264,7 +1208,6 @@ function frame() {
     if (keys.has('KeyQ')) camState.yaw += dt * 1.6; if (keys.has('KeyR')) camState.yaw -= dt * 1.6;
     if (keys.has('PageUp')) camState.pitch = Math.min(1.45, camState.pitch + dt); if (keys.has('PageDown')) camState.pitch = Math.max(0.05, camState.pitch - dt);
     let sp = keys.has('ShiftLeft') || keys.has('ShiftRight') ? RUN : WALK;
-    if (FOREST && (player.air || player.pos.y > 0.7)) sp = player.air ? 2.9 : Math.max(sp, 2.2);   // 점프 맵: 공중·발판 위에서는 조금 더 빠르게
     if ((ix || iz) && !player.acting && !sitting && !player.glide) {
       player.path = null; pendingAction = null; marker.visible = false;
       const fy = camState.yaw + Math.PI, fx = Math.sin(fy), fz = Math.cos(fy);
@@ -1275,10 +1218,8 @@ function frame() {
       if (!player.air) player.play('Walking_A');
       if (player.follow(dt, WALK)) { marker.visible = false; player.play('Idle'); if (pendingAction) { const f = pendingAction; pendingAction = null; f(); } }
     } else if (!sitting && !player.acting && !player.glide && !player.air && player.curName !== 'Idle' && !player.onFinish) player.play('Idle');
-    if (course) course.update(tAll);
     player.update(dt);
     npcs.forEach(n => n.update(dt));
-    climbHud();
     separate(dt);
     moktakHits(); recordTime(dt); choirNotes(dt); npcChatter(dt); rec.tick(tAll);
     let indoor = null;
@@ -1334,4 +1275,4 @@ function loop() {
   try { frame(); } catch (e) { if (frameErr++ < 3) console.error('frame', e); }
 }
 requestAnimationFrame(loop);
-window.__dbg = { THREE_V: THREE.Vector3, applyTime, TIME, get bloom() { return BLOOM_ON; }, set bloom(v) { BLOOM_ON = v; }, get player() { return player; }, get npcs() { return npcs; }, startWalk, walkTo, POI, SPOTS, startAction, camState, nav, setPick: k => { pickKey = k; }, rec, groundH, say, jump, renderer, keys, get course() { return course; }, climb, teleport, resetToIntro, applyTime, nearSpot: () => nearSpot };
+window.__dbg = { THREE_V: THREE.Vector3, applyTime, TIME, get bloom() { return BLOOM_ON; }, set bloom(v) { BLOOM_ON = v; }, get player() { return player; }, get npcs() { return npcs; }, startWalk, walkTo, POI, SPOTS, startAction, camState, nav, setPick: k => { pickKey = k; }, rec, groundH, say, jump, renderer, keys, teleport, resetToIntro, applyTime, nearSpot: () => nearSpot };

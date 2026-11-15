@@ -3,7 +3,6 @@
 const THEMES = {
   village: { ground: '#E9C48E', path: '#D9AA6E', block: '#8E5A3C', inside: '#F6E2C0', water: '#7FB7C9', edge: '#5A3A2A', me: '#E8542E', npc: '#FFF6E6', label: '#3A2418', bg: '#C98F5E' },
   school: { ground: '#8D86B0', path: '#A69FC6', block: '#3C3766', inside: '#C9BEE6', water: '#4E6FA8', edge: '#24204A', me: '#9CD2FF', npc: '#FFE7A0', label: '#1E1A3C', bg: '#4A4478' },
-  forest: { ground: '#9CC48A', path: '#B7D59E', block: '#4E6E3E', inside: '#D8EAC4', water: '#6FAFC0', edge: '#2E4426', me: '#FF8A3D', npc: '#FFF6E6', label: '#20301A', bg: '#6E9A5A' },
 };
 
 export function createMinimap({ key, nav, bound, layout, poi, water = [], onPick, icon }) {

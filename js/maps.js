@@ -71,37 +71,8 @@ export const MAPS = {
     clickTargets: ['castle'],
     names: { school: ['별빛 마법학교', '별이 쏟아지는 밤'], hall: ['대강당', '떠 있는 촛불 아래'], library: ['도서관', '책장 넘기는 소리'], tower: ['천문대', '별을 바라보기'] },
   },
-  forest: {
-    key: 'forest', title: '하늘 오름 숲', icon: '🌲', time: 'day', jumpMap: true,
-    tagline: '아주 큰 나무를 빙글빙글 돌아 꼭대기의 하늘 정원까지 올라가는 점프 숲. 떨어져도 괜찮아요, 한 칸씩 천천히.',
-    layout: '../assets/forest/forest_layout.js', world: 'assets/forest/forest.glb', splat: 'assets/forest/splat.png',
-    chars: 'assets/characters/', portraits: 'assets/portraits/', baseZone: 'forest', zones: ['canopy'],
-    jobs: { hamster: '도시락 담당', rabbit: '응원 대장', cat: '낮잠 전문', dog: '길 안내', bear: '모닥불지기', panda: '대나무 피리', fox: '나무 타기 선수', raccoon: '버섯 연구', squirrel: '꼭대기 단골', deer: '숲 지킴이', lion: '구조대' },
-    who: { hamster: '콩알', rabbit: '구름', cat: '산들', dog: '바위', bear: '너럭', panda: '대숲', fox: '단비', raccoon: '버섯', squirrel: '도토리', deer: '풀잎', lion: '해님' },
-    water: [],
-    u: {},
-    poi: B => ({
-      tree: { p: [B.tree.door[0], B.tree.door[2]], name: '큰 나무 (오르기 시작)' },
-      camp: { p: [B.camp.door[0], B.camp.door[2]], name: '모닥불 빈터' },
-      gate: { p: [B.gate.door[0], B.gate.door[2]], name: '숲 입구' },
-      rest: { tp: 'rest', name: '🪶 마지막 쉼터로 (순간이동)' },
-      down: { tp: 'down', name: '⬇️ 땅으로 내려가기' },
-      home: { name: '내 그루터기', home: true },
-    }),
-    out: B => ({
-      camp: [[2.4, 11.6], [-2.4, 11.4], [0, 7.6], [3.0, 8.6], [-3.2, 8.4]],
-      tree: [[B.tree.door[0] + 1.2, B.tree.door[2] + 1.4], [-3.0, 1.8], [3.2, 2.0]],
-      walk: [[0, 18], [0, 14], [-8, 12], [8, 9], [-6, 3], [6, 3], [-12, 6], [12, 13]],
-    }),
-    cheerPool: 'camp',
-    npcKinds: ['forest_stump', 'forest_stump'],
-    zoneActs: { canopy: [['forest_view']] },
-    roofKind: {},
-    clickTargets: ['forest'],
-    names: { forest: ['하늘 오름 숲', '한 칸씩, 천천히 올라가 보세요'], canopy: ['하늘 정원', '바람이 지나가는 나무 꼭대기'] },
-  },
 };
-export const MAP_ORDER = ['village', 'school', 'forest'];
+export const MAP_ORDER = ['village', 'school'];
 
 // 도서관 책 (모두 이 사이트를 위해 새로 쓴 글)
 export const BOOK_TITLES = ['『구름을 접는 법』', '『고양이와 달의 약속』', '『잠 못 드는 별을 위한 자장가』', '『비 오는 날의 물약 101가지』', '『아주 작은 용 기르기』',
